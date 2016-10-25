@@ -37,16 +37,14 @@ namespace Serilog.Sinks.PeriodicBatching
     public abstract class PeriodicBatchingSink : ILogEventSink, IDisposable
     {
         readonly int _batchSizeLimit;
-        readonly ConcurrentQueue<LogEvent> _queue;
+        readonly BoundedConcurrentQueue<LogEvent> _queue;
         readonly BatchedConnectionStatus _status;
         readonly Queue<LogEvent> _waitingBatch = new Queue<LogEvent>();
 
         readonly object _stateLock = new object();
-#if WAITABLE_TIMER
-        readonly Timer _timer;
-#else
+
         readonly PortableTimer _timer;
-#endif
+
         bool _unloading;
         bool _started;
 
@@ -58,16 +56,24 @@ namespace Serilog.Sinks.PeriodicBatching
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period)
         {
             _batchSizeLimit = batchSizeLimit;
-            _queue = new ConcurrentQueue<LogEvent>();
+            _queue = new BoundedConcurrentQueue<LogEvent>();
             _status = new BatchedConnectionStatus(period);
-
-#if WAITABLE_TIMER
-            _timer = new Timer(s => OnTick(), null, -1, -1);
-#else
+            
             _timer = new PortableTimer(cancel => OnTick());
-#endif
         }
-        
+
+        /// <summary>
+        /// Construct a sink posting to the specified database.
+        /// </summary>
+        /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
+        /// <param name="period">The time to wait between checking for event batches.</param>
+        /// <param name="queueLimit">Maximum number of events in the queue.</param>
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
+            : this(batchSizeLimit, period)
+        {
+            _queue = new BoundedConcurrentQueue<LogEvent>(queueLimit);
+        }
+
         void CloseAndFlush()
         {
             lock (_stateLock)
@@ -77,14 +83,8 @@ namespace Serilog.Sinks.PeriodicBatching
 
                 _unloading = true;
             }
-            
-#if WAITABLE_TIMER
-            var wh = new ManualResetEvent(false);
-            if (_timer.Dispose(wh))
-                wh.WaitOne();
-#else
+
             _timer.Dispose();
-#endif
 
             OnTick();
         }
@@ -198,12 +198,7 @@ namespace Serilog.Sinks.PeriodicBatching
 
         void SetTimer(TimeSpan interval)
         {
-#if WAITABLE_TIMER
-            _timer.Change(interval, Timeout.InfiniteTimeSpan);
-#else
             _timer.Start(interval);
-#endif
-
         }
 
         /// <summary>
@@ -233,7 +228,7 @@ namespace Serilog.Sinks.PeriodicBatching
                     {
                         // Special handling to try to get the first event across as quickly
                         // as possible to show we're alive!
-                        _queue.Enqueue(logEvent);
+                        _queue.TryEnqueue(logEvent);
                         _started = true;
                         SetTimer(TimeSpan.Zero);
                         return;
@@ -241,7 +236,7 @@ namespace Serilog.Sinks.PeriodicBatching
                 }
             }
 
-            _queue.Enqueue(logEvent);
+            _queue.TryEnqueue(logEvent);
         }
 
         /// <summary>

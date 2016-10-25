@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#if !WAITABLE_TIMER
-
 using Serilog.Debugging;
 using System;
 using System.Threading;
@@ -23,24 +21,27 @@ namespace Serilog.Sinks.PeriodicBatching
 {
     class PortableTimer : IDisposable
     {
-        enum PortableTimerState
-        {
-            NotWaiting,
-            Waiting,
-            Active,
-            Disposed
-        }
-
         readonly object _stateLock = new object();
-        PortableTimerState _state = PortableTimerState.NotWaiting;
 
         readonly Action<CancellationToken> _onTick;
         readonly CancellationTokenSource _cancel = new CancellationTokenSource();
 
+#if THREADING_TIMER
+        readonly Timer _timer;
+#endif
+
+        bool _running;
+        bool _disposed;
+
         public PortableTimer(Action<CancellationToken> onTick)
         {
             if (onTick == null) throw new ArgumentNullException(nameof(onTick));
+
             _onTick = onTick;
+
+#if THREADING_TIMER
+            _timer = new Timer(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
+#endif
         }
 
         public void Start(TimeSpan interval)
@@ -49,69 +50,90 @@ namespace Serilog.Sinks.PeriodicBatching
 
             lock (_stateLock)
             {
-                if (_state == PortableTimerState.Disposed)
-                    throw new ObjectDisposedException("PortableTimer");
+                if (_disposed)
+                    throw new ObjectDisposedException(nameof(PortableTimer));
 
-                // There's a little bit of raciness here, but it's needed to support the
-                // current API, which allows the tick handler to reenter and set the next interval.
-
-                if (_state == PortableTimerState.Waiting)
-                    throw new InvalidOperationException("The timer is already set.");
-
-                if (_cancel.IsCancellationRequested) return;
-
-                _state = PortableTimerState.Waiting;
+#if THREADING_TIMER
+                _timer.Change(interval, Timeout.InfiniteTimeSpan);
+#else
+                Task.Delay(interval, _cancel.Token)
+                    .ContinueWith(
+                        _ => OnTick(),
+                        CancellationToken.None,
+                        TaskContinuationOptions.DenyChildAttach,
+                        TaskScheduler.Default)
+                    .AsObserved();
+#endif
             }
-            
-            Task.Delay(interval, _cancel.Token)
-                .ContinueWith(
-                    _ =>
-                    {
-                        try
-                        {
-                            _state = PortableTimerState.Active;
+        }
 
-                            if (!_cancel.Token.IsCancellationRequested)
-                            {
-                                _onTick(_cancel.Token);
-                            }
-                        }
-                        catch (TaskCanceledException tcx)
+        private void OnTick()
+        {
+            try
+            {
+                lock (_stateLock)
+                {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
+                    // There's a little bit of raciness here, but it's needed to support the
+                    // current API, which allows the tick handler to reenter and set the next interval.
+
+                    if (_running)
+                    {
+                        Monitor.Wait(_stateLock);
+
+                        if (_disposed)
                         {
-                            SelfLog.WriteLine("The timer was canceled during invocation: {0}", tcx);
+                            return;
                         }
-                        finally
-                        {
-                            lock (_stateLock)
-                                _state = PortableTimerState.NotWaiting;
-                        }
-                    },
-                    CancellationToken.None,
-                    TaskContinuationOptions.DenyChildAttach,
-                    TaskScheduler.Default)
-                .AsObserved();
+                    }                    
+
+                    _running = true;
+                }
+
+                if (!_cancel.Token.IsCancellationRequested)
+                {
+                    _onTick(_cancel.Token);
+                }
+            }
+            catch (OperationCanceledException tcx)
+            {
+                SelfLog.WriteLine("The timer was canceled during invocation: {0}", tcx);
+            }
+            finally
+            {
+                lock (_stateLock)
+                {
+                    _running = false;
+                    Monitor.PulseAll(_stateLock);
+                }
+            }
         }
 
         public void Dispose()
         {
             _cancel.Cancel();
-
-            while (true)
+            
+            lock (_stateLock)
             {
-                lock (_stateLock)
+                if (_disposed)
                 {
-                    if (_state == PortableTimerState.Disposed ||
-                        _state == PortableTimerState.NotWaiting)
-                    {
-                        _state = PortableTimerState.Disposed;
-                        return;
-                    }
+                    return;
                 }
 
-// On the very old platforms, we've got no option but to spin here.
-#if THREAD
-                Thread.Sleep(10);
+                while (_running)
+                {
+                    Monitor.Wait(_stateLock);
+                }
+
+#if THREADING_TIMER
+                _timer.Dispose();
 #endif
+
+                _disposed = true;
             }
         }
     }
@@ -124,4 +146,3 @@ namespace Serilog.Sinks.PeriodicBatching
         } 
     }
 }
-#endif

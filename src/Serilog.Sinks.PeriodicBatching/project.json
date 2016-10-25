@@ -1,5 +1,5 @@
 ﻿{
-  "version": "2.0.1-*",
+  "version": "2.1.0-*",
   "description": "The periodic batching sink for Serilog",
   "authors": [ "Serilog Contributors" ],
   "packOptions": {
@@ -18,7 +18,7 @@
   "frameworks": {
     "net4.5": {
       "buildOptions": {
-        "define": [ "WAITABLE_TIMER", "THREAD" ]
+        "define": [ "THREADING_TIMER" ]
       }
     },
     "netstandard1.1": {
@@ -26,13 +26,13 @@
         "System.Collections.Concurrent": "4.0.12"
       }
     },
-    "netstandard1.3": {
+    "netstandard1.2": {
       "buildOptions": {
-        "define": [ "THREAD" ]
+        "define": [ "THREADING_TIMER" ]
       },
       "dependencies": {
         "System.Collections.Concurrent": "4.0.12",
-        "System.Threading.Thread": "4.0.0"
+        "System.Threading.Timer": "4.0.1"
       }
     }
   }

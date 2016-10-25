@@ -1,11 +1,12 @@
-{
+﻿{
   "version": "2.0.0",
   "testRunner": "xunit",
   "dependencies": {
     "Serilog": "2.0.0",
     "Serilog.Sinks.PeriodicBatching": { "target": "project" },
-    "xunit": "2.1.0",
-    "dotnet-test-xunit": "1.0.0-rc2-build10025"
+    "xunit": "2.2.0-*",
+    "dotnet-test-xunit": "2.2.0-*",
+    "BenchmarkDotNet": "0.9.9"
   },
   "buildOptions": {
     "keyFile": "../../assets/Serilog.snk"
@@ -24,7 +25,7 @@
       ]
     },
 
-    "net4.5.2": {
+    "net452": {
     }
   }
 }
