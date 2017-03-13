@@ -16,10 +16,18 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         {
             bool wasCalled = false;
 
-            using (var timer = new PortableTimer(async delegate { await Task.Delay(100); wasCalled = true; }))
+            var barrier = new Barrier(participantCount: 2);
+
+            using (var timer = new PortableTimer(
+                                    async delegate
+                                    {
+                                        barrier.SignalAndWait();
+                                        await Task.Delay(100);
+                                        wasCalled = true;
+                                    }))
             { 
                 timer.Start(TimeSpan.Zero);
-                Thread.Sleep(20);
+                barrier.SignalAndWait();
             }
 
             Assert.True(wasCalled);
