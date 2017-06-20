@@ -55,24 +55,28 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         }
 
         [Fact]
-        public void WhenFourFailuresHaveOccurredTheIntervalBacksOffAndBatchIsDropped()
+        public void When8FailuresHaveOccurredTheIntervalBacksOffAndBatchIsDropped()
         {
             var bcs = new BatchedConnectionStatus(DefaultPeriod);
-            bcs.MarkFailure();
-            bcs.MarkFailure();
-            bcs.MarkFailure();
-            bcs.MarkFailure();
-            Assert.Equal(TimeSpan.FromSeconds(40), bcs.NextInterval);
+            for (var i = 0; i < 8; ++i)
+            {
+                Assert.False(bcs.ShouldDropBatch);
+                bcs.MarkFailure();
+            }
+            Assert.Equal(TimeSpan.FromMinutes(10), bcs.NextInterval);
             Assert.True(bcs.ShouldDropBatch);
             Assert.False(bcs.ShouldDropQueue);
         }
 
         [Fact]
-        public void WhenSixFailuresHaveOccurredTheQueueIsDropped()
+        public void When10FailuresHaveOccurredTheQueueIsDropped()
         {
             var bcs = new BatchedConnectionStatus(DefaultPeriod);
-            for (var i = 0; i < 6; ++i )
+            for (var i = 0; i < 10; ++i)
+            {
+                Assert.False(bcs.ShouldDropQueue);
                 bcs.MarkFailure();
+            }
             Assert.True(bcs.ShouldDropQueue);
         }
 
