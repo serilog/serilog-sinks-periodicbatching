@@ -14,7 +14,6 @@
 
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Serilog.Core;
@@ -86,7 +85,23 @@ namespace Serilog.Sinks.PeriodicBatching
 
             _timer.Dispose();
 
-            OnTick();
+            // This is the place where SynchronizationContext.Current is unknown and can be != null
+            // so we prevent possible deadlocks here for sync-over-async downstream implementations 
+            ResetSyncContextAndWait(OnTick);
+        }
+
+        void ResetSyncContextAndWait(Func<Task> taskFactory)
+        {
+            var prevContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(null);
+            try
+            {
+                taskFactory().Wait();
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(prevContext);
+            }
         }
 
         /// <summary>
@@ -117,33 +132,22 @@ namespace Serilog.Sinks.PeriodicBatching
         /// not both.</remarks>
         protected virtual void EmitBatch(IEnumerable<LogEvent> events)
         {
-            var prevContext = SynchronizationContext.Current;
-            SynchronizationContext.SetSynchronizationContext(null);
-            try
-            {
-                // Wait so that the timer thread stays busy and thus
-                // we know we're working when flushing.
-                EmitBatchAsync(events).Wait();
-            }
-            finally
-            {
-                SynchronizationContext.SetSynchronizationContext(prevContext);
-            }
         }
 
         /// <summary>
         /// Emit a batch of log events, running asynchronously.
         /// </summary>
         /// <param name="events">The events to emit.</param>
-        /// <remarks>Override either <see cref="EmitBatch"/> or <see cref="EmitBatchAsync"/>,
-        /// not both. Overriding EmitBatch() is preferred.</remarks>
+        /// <remarks>Override either <see cref="EmitBatchAsync"/> or <see cref="EmitBatch"/>,
+        /// not both. </remarks>
 #pragma warning disable 1998
         protected virtual async Task EmitBatchAsync(IEnumerable<LogEvent> events)
 #pragma warning restore 1998
         {
+            EmitBatch(events);
         }
 
-        void OnTick()
+        async Task OnTick()
         {
             try
             {
@@ -160,11 +164,11 @@ namespace Serilog.Sinks.PeriodicBatching
 
                     if (_waitingBatch.Count == 0)
                     {
-                        OnEmptyBatch();
+                        await OnEmptyBatchAsync();
                         return;
                     }
 
-                    EmitBatch(_waitingBatch);
+                    await EmitBatchAsync(_waitingBatch);
 
                     batchWasFull = _waitingBatch.Count >= _batchSizeLimit;
                     _waitingBatch.Clear();
@@ -254,8 +258,23 @@ namespace Serilog.Sinks.PeriodicBatching
         /// Allows derived sinks to perform periodic work without requiring additional threads
         /// or timers (thus avoiding additional flush/shut-down complexity).
         /// </summary>
+        /// <remarks>Override either <see cref="OnEmptyBatch"/> or <see cref="OnEmptyBatchAsync"/>,
+        /// not both. </remarks>
         protected virtual void OnEmptyBatch()
         {
+        }
+
+        /// <summary>
+        /// Allows derived sinks to perform periodic work without requiring additional threads
+        /// or timers (thus avoiding additional flush/shut-down complexity).
+        /// </summary>
+        /// <remarks>Override either <see cref="OnEmptyBatchAsync"/> or <see cref="OnEmptyBatch"/>,
+        /// not both. </remarks>
+#pragma warning disable 1998
+        protected virtual async Task OnEmptyBatchAsync()
+#pragma warning restore 1998
+        {
+            OnEmptyBatch();
         }
     }
 }

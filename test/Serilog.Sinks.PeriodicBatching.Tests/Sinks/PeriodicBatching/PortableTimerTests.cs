@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
+#pragma warning disable 1998
+
 namespace Serilog.Tests.Sinks.PeriodicBatching
 {
     public class PortableTimerTests
@@ -13,10 +15,19 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         public void WhenItStartsItWaitsUntilHandled_OnDispose()
         {
             bool wasCalled = false;
-            using (var timer = new PortableTimer(delegate { Thread.Sleep(50); wasCalled = true; }))
+
+            var barrier = new Barrier(participantCount: 2);
+
+            using (var timer = new PortableTimer(
+                                    async delegate
+                                    {
+                                        barrier.SignalAndWait();
+                                        await Task.Delay(100);
+                                        wasCalled = true;
+                                    }))
             { 
                 timer.Start(TimeSpan.Zero);
-                Thread.Sleep(10);
+                barrier.SignalAndWait();
             }
 
             Assert.True(wasCalled);
@@ -30,7 +41,7 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
 
             SelfLog.Enable(_ => writtenToSelflog = true);
 
-            using (var timer = new PortableTimer(delegate { Thread.Sleep(50); wasCalled = true; }))
+            using (var timer = new PortableTimer(async delegate { await Task.Delay(50); wasCalled = true; }))
             {
                 timer.Start(TimeSpan.FromMilliseconds(20));
             }
@@ -49,14 +60,20 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
 
             SelfLog.Enable(_ => writtenToSelflog = true);
 
+            var barrier = new Barrier(participantCount: 2);
+
             using (var timer = new PortableTimer(
-                                    token => {
+                                    async token =>
+                                    {
+                                        barrier.SignalAndWait();
+                                        await Task.Delay(50);
+
                                         wasCalled = true;
-                                        Task.Delay(TimeSpan.FromMilliseconds(50), token).GetAwaiter().GetResult();
+                                        await Task.Delay(50, token);
                                     }))
             {
                 timer.Start(TimeSpan.FromMilliseconds(20));
-                Thread.Sleep(40);
+                barrier.SignalAndWait();
             }
 
             Assert.True(wasCalled, "tick handler wasn't called");
@@ -67,7 +84,7 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         public void WhenDisposedWillThrow_OnStart()
         {
             bool wasCalled = false;
-            var timer = new PortableTimer(delegate { wasCalled = true; });
+            var timer = new PortableTimer(async delegate { wasCalled = true; });
             timer.Start(TimeSpan.FromMilliseconds(100));
             timer.Dispose();
 
@@ -82,14 +99,14 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
 
             PortableTimer timer = null;
             timer = new PortableTimer(
-                _ =>
+                async _ =>
                 {
                     if (Monitor.TryEnter(timer))
                     {
                         try
                         {
-                            timer.Start(TimeSpan.FromMilliseconds(0));
-                            Thread.Sleep(1);
+                            timer.Start(TimeSpan.Zero);
+                            Thread.Sleep(20);
                         }
                         finally
                         {
@@ -113,7 +130,7 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         public void CanBeDisposedFromMultipleThreads()
         {
             PortableTimer timer = null;
-            timer = new PortableTimer(_ => timer.Start(TimeSpan.FromMilliseconds(1)));
+            timer = new PortableTimer(async _ => timer.Start(TimeSpan.FromMilliseconds(1)));
 
             timer.Start(TimeSpan.Zero);
             Thread.Sleep(50);
@@ -122,3 +139,5 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         }        
     }
 }
+
+#pragma warning restore 1998

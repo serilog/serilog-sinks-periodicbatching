@@ -23,7 +23,7 @@ namespace Serilog.Sinks.PeriodicBatching
     {
         readonly object _stateLock = new object();
 
-        readonly Action<CancellationToken> _onTick;
+        readonly Func<CancellationToken, Task> _onTick;
         readonly CancellationTokenSource _cancel = new CancellationTokenSource();
 
 #if THREADING_TIMER
@@ -33,7 +33,7 @@ namespace Serilog.Sinks.PeriodicBatching
         bool _running;
         bool _disposed;
 
-        public PortableTimer(Action<CancellationToken> onTick)
+        public PortableTimer(Func<CancellationToken, Task> onTick)
         {
             if (onTick == null) throw new ArgumentNullException(nameof(onTick));
 
@@ -61,13 +61,12 @@ namespace Serilog.Sinks.PeriodicBatching
                         _ => OnTick(),
                         CancellationToken.None,
                         TaskContinuationOptions.DenyChildAttach,
-                        TaskScheduler.Default)
-                    .AsObserved();
+                        TaskScheduler.Default);
 #endif
             }
         }
 
-        private void OnTick()
+        async void OnTick()
         {
             try
             {
@@ -96,7 +95,7 @@ namespace Serilog.Sinks.PeriodicBatching
 
                 if (!_cancel.Token.IsCancellationRequested)
                 {
-                    _onTick(_cancel.Token);
+                    await _onTick(_cancel.Token);
                 }
             }
             catch (OperationCanceledException tcx)
@@ -136,13 +135,5 @@ namespace Serilog.Sinks.PeriodicBatching
                 _disposed = true;
             }
         }
-    }
-
-    static class TaskExtensions
-    {
-        public static async void AsObserved(this Task task)
-        {
-            await task.ConfigureAwait(false);
-        } 
     }
 }
