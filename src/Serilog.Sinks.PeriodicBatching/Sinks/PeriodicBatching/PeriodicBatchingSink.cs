@@ -35,6 +35,7 @@ namespace Serilog.Sinks.PeriodicBatching
     /// </remarks>
     public abstract class PeriodicBatchingSink : ILogEventSink, IDisposable
     {
+        readonly bool _eagerEmitFirstMessage;
         readonly int _batchSizeLimit;
         readonly BoundedConcurrentQueue<LogEvent> _queue;
         readonly BatchedConnectionStatus _status;
@@ -57,7 +58,7 @@ namespace Serilog.Sinks.PeriodicBatching
             _batchSizeLimit = batchSizeLimit;
             _queue = new BoundedConcurrentQueue<LogEvent>();
             _status = new BatchedConnectionStatus(period);
-            
+
             _timer = new PortableTimer(cancel => OnTick());
         }
 
@@ -67,9 +68,11 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
         /// <param name="queueLimit">Maximum number of events in the queue.</param>
-        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
+        /// <param name="eagerEmitFirstMessage">Eagerly send the first message in a one-message batch.</param>
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit, bool eagerEmitFirstMessage = true)
             : this(batchSizeLimit, period)
         {
+            _eagerEmitFirstMessage = eagerEmitFirstMessage;
             _queue = new BoundedConcurrentQueue<LogEvent>(queueLimit);
         }
 
@@ -227,14 +230,19 @@ namespace Serilog.Sinks.PeriodicBatching
             {
                 lock (_stateLock)
                 {
-                    if (_unloading) return;
+                    if (_unloading)
+                        return;
+
                     if (!_started)
                     {
                         // Special handling to try to get the first event across as quickly
                         // as possible to show we're alive!
                         _queue.TryEnqueue(logEvent);
                         _started = true;
-                        SetTimer(TimeSpan.Zero);
+
+                        if (_eagerEmitFirstMessage)
+                            SetTimer(TimeSpan.Zero);
+
                         return;
                     }
                 }
