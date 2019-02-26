@@ -53,13 +53,34 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
         /// <param name="queueLimit">Maximum number of events in the queue.</param>
-        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int? queueLimit = null)
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int? queueLimit)
         {
             _batchSizeLimit = batchSizeLimit;
             _queue = new BoundedConcurrentQueue<LogEvent>(queueLimit);
             _status = new BatchedConnectionStatus(period);
-            
+
             _timer = new PortableTimer(cancel => OnTick());
+        }
+
+        /// <summary>
+        /// Construct a sink posting to the specified database.
+        /// </summary>
+        /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
+        /// <param name="period">The time to wait between checking for event batches.</param>
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period) 
+            : this(batchSizeLimit, period, null)
+        {
+        }
+
+        /// <summary>
+        /// Construct a sink posting to the specified database.
+        /// </summary>
+        /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
+        /// <param name="period">The time to wait between checking for event batches.</param>
+        /// <param name="queueLimit">Maximum number of events in the queue.</param>
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
+            : this(batchSizeLimit, period, (int?)queueLimit)
+        {
         }
 
         void CloseAndFlush()
