@@ -4,7 +4,7 @@ using System.Threading;
 
 namespace Serilog.Sinks.PeriodicBatching
 {
-    class BoundedConcurrentQueue<T> 
+    class BoundedConcurrentQueue<T>
     {
         const int NON_BOUNDED = -1;
 
@@ -13,17 +13,12 @@ namespace Serilog.Sinks.PeriodicBatching
 
         int _counter;
 
-        public BoundedConcurrentQueue() 
+        public BoundedConcurrentQueue(int? queueLimit = null)
         {
-            _queueLimit = NON_BOUNDED;
-        }
-
-        public BoundedConcurrentQueue(int queueLimit)
-        {
-            if (queueLimit <= 0)
+            if (queueLimit.HasValue && queueLimit <= 0)
                 throw new ArgumentOutOfRangeException(nameof(queueLimit), "queue limit must be positive");
 
-            _queueLimit = queueLimit;
+            _queueLimit = queueLimit ?? NON_BOUNDED;
         }
 
         public int Count => _queue.Count;
