@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <Description>The periodic batching sink for Serilog</Description>
@@ -41,8 +41,6 @@
   </ItemGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
-    <PackageReference Include="System.Collections.Concurrent" Version="4.0.12" />
-    <PackageReference Include="System.Threading.Timer" Version="4.0.1" />
   </ItemGroup>
     
   <PropertyGroup Condition=" '$(TargetFramework)' == 'net45' ">
