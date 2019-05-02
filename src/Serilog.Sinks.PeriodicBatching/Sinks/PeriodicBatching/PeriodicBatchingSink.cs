@@ -57,7 +57,7 @@ namespace Serilog.Sinks.PeriodicBatching
             _batchSizeLimit = batchSizeLimit;
             _queue = new BoundedConcurrentQueue<LogEvent>();
             _status = new BatchedConnectionStatus(period);
-
+            
             _timer = new PortableTimer(cancel => OnTick());
         }
 
@@ -156,7 +156,7 @@ namespace Serilog.Sinks.PeriodicBatching
                 {
                     LogEvent next;
                     while (_waitingBatch.Count < _batchSizeLimit &&
-                           _queue.TryDequeue(out next))
+                        _queue.TryDequeue(out next))
                     {
                         if (CanInclude(next))
                             _waitingBatch.Enqueue(next);
@@ -173,7 +173,8 @@ namespace Serilog.Sinks.PeriodicBatching
                     batchWasFull = _waitingBatch.Count >= _batchSizeLimit;
                     _waitingBatch.Clear();
                     _status.MarkSuccess();
-                } while (batchWasFull); // Otherwise, allow the period to elapse
+                }
+                while (batchWasFull); // Otherwise, allow the period to elapse
             }
             catch (Exception ex)
             {
@@ -188,9 +189,7 @@ namespace Serilog.Sinks.PeriodicBatching
                 if (_status.ShouldDropQueue)
                 {
                     LogEvent evt;
-                    while (_queue.TryDequeue(out evt))
-                    {
-                    }
+                    while (_queue.TryDequeue(out evt)) { }
                 }
 
                 lock (_stateLock)
