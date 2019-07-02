@@ -14,14 +14,12 @@ namespace Serilog.Sinks.PeriodicBatching
         int _counter;
 
         public BoundedConcurrentQueue() 
-        {
-            _queueLimit = NON_BOUNDED;
-        }
+            : this(NON_BOUNDED) { }
 
         public BoundedConcurrentQueue(int queueLimit)
         {
-            if (queueLimit <= 0)
-                throw new ArgumentOutOfRangeException(nameof(queueLimit), "queue limit must be positive");
+            if (queueLimit <= 0 && queueLimit != NON_BOUNDED)
+                throw new ArgumentOutOfRangeException(nameof(queueLimit), $"Queue limit must be positive, or {NON_BOUNDED} (to indicate unlimited).");
 
             _queueLimit = queueLimit;
         }
