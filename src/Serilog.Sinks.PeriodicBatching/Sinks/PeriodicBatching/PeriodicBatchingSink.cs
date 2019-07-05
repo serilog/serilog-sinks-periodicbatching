@@ -35,6 +35,11 @@ namespace Serilog.Sinks.PeriodicBatching
     /// </remarks>
     public abstract class PeriodicBatchingSink : ILogEventSink, IDisposable
     {
+        /// <summary>
+        /// Constant used to indicate that the internal queue shouldn't be limited.
+        /// </summary>
+        public const int NoQueueLimit = BoundedConcurrentQueue<LogEvent>.NON_BOUNDED;
+
         readonly int _batchSizeLimit;
         readonly BoundedConcurrentQueue<LogEvent> _queue;
         readonly BatchedConnectionStatus _status;
@@ -53,24 +58,21 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period)
-        {
-            _batchSizeLimit = batchSizeLimit;
-            _queue = new BoundedConcurrentQueue<LogEvent>();
-            _status = new BatchedConnectionStatus(period);
-            
-            _timer = new PortableTimer(cancel => OnTick());
-        }
+            : this(batchSizeLimit, period, NoQueueLimit) { }
 
         /// <summary>
         /// Construct a sink posting to the specified database.
         /// </summary>
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
-        /// <param name="queueLimit">Maximum number of events in the queue.</param>
+        /// <param name="queueLimit">Maximum number of events in the queue - use <see cref="NoQueueLimit"/> for an unbounded queue.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
-            : this(batchSizeLimit, period)
         {
+            _batchSizeLimit = batchSizeLimit;
             _queue = new BoundedConcurrentQueue<LogEvent>(queueLimit);
+            _status = new BatchedConnectionStatus(period);
+
+            _timer = new PortableTimer(cancel => OnTick());
         }
 
         void CloseAndFlush()
