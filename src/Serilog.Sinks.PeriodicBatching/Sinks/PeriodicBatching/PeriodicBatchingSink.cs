@@ -68,6 +68,11 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="queueLimit">Maximum number of events in the queue - use <see cref="NoQueueLimit"/> for an unbounded queue.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
         {
+            if (!(batchSizeLimit > 0))
+                throw new ArgumentOutOfRangeException(nameof(batchSizeLimit), "Parameter must be greater than 0.");
+            if (!(period > TimeSpan.Zero))
+                throw new ArgumentOutOfRangeException(nameof(period), "Parameter must be greater than the 0 time span.");
+
             _batchSizeLimit = batchSizeLimit;
             _queue = new BoundedConcurrentQueue<LogEvent>(queueLimit);
             _status = new BatchedConnectionStatus(period);
