@@ -38,7 +38,7 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <summary>
         /// Constant used to indicate that the internal queue shouldn't be limited.
         /// </summary>
-        public const int NoQueueLimit = BoundedConcurrentQueue<LogEvent>.NON_BOUNDED;
+        public const int NoQueueLimit = BoundedConcurrentQueue<LogEvent>.NonBounded;
 
         readonly int _batchSizeLimit;
         readonly BoundedConcurrentQueue<LogEvent> _queue;

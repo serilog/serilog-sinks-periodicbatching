@@ -6,7 +6,7 @@ namespace Serilog.Sinks.PeriodicBatching
 {
     class BoundedConcurrentQueue<T> 
     {
-        public const int NON_BOUNDED = -1;
+        public const int NonBounded = -1;
 
         readonly ConcurrentQueue<T> _queue = new ConcurrentQueue<T>();
         readonly int _queueLimit;
@@ -14,12 +14,12 @@ namespace Serilog.Sinks.PeriodicBatching
         int _counter;
 
         public BoundedConcurrentQueue() 
-            : this(NON_BOUNDED) { }
+            : this(NonBounded) { }
 
         public BoundedConcurrentQueue(int queueLimit)
         {
-            if (queueLimit <= 0 && queueLimit != NON_BOUNDED)
-                throw new ArgumentOutOfRangeException(nameof(queueLimit), $"Queue limit must be positive, or {NON_BOUNDED} (to indicate unlimited).");
+            if (queueLimit <= 0 && queueLimit != NonBounded)
+                throw new ArgumentOutOfRangeException(nameof(queueLimit), $"Queue limit must be positive, or {NonBounded} (to indicate unlimited).");
 
             _queueLimit = queueLimit;
         }
@@ -28,7 +28,7 @@ namespace Serilog.Sinks.PeriodicBatching
 
         public bool TryDequeue(out T item)
         {
-            if (_queueLimit == NON_BOUNDED)
+            if (_queueLimit == NonBounded)
                 return _queue.TryDequeue(out item);
 
             var result = false;
@@ -48,7 +48,7 @@ namespace Serilog.Sinks.PeriodicBatching
 
         public bool TryEnqueue(T item)
         {
-            if (_queueLimit == NON_BOUNDED)
+            if (_queueLimit == NonBounded)
             {
                 _queue.Enqueue(item);
                 return true;
