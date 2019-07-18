@@ -230,6 +230,7 @@ namespace Serilog.Sinks.PeriodicBatching
             if (_unloading)
                 return;
 
+            bool queued;
             if (!_started)
             {
                 lock (_stateLock)
@@ -239,7 +240,8 @@ namespace Serilog.Sinks.PeriodicBatching
                     {
                         // Special handling to try to get the first event across as quickly
                         // as possible to show we're alive!
-                        _queue.TryEnqueue(logEvent);
+                        queued = _queue.TryEnqueue(logEvent);
+                        if (!queued) OnEnqueueFailed(logEvent);
                         _started = true;
                         SetTimer(TimeSpan.Zero);
                         return;
@@ -247,7 +249,8 @@ namespace Serilog.Sinks.PeriodicBatching
                 }
             }
 
-            _queue.TryEnqueue(logEvent);
+            queued = _queue.TryEnqueue(logEvent);
+            if (!queued) OnEnqueueFailed(logEvent);
         }
 
         /// <summary>
@@ -282,6 +285,15 @@ namespace Serilog.Sinks.PeriodicBatching
 #pragma warning restore 1998
         {
             OnEmptyBatch();
+        }
+
+        /// <summary>
+        /// Allows derived sinks to take action when a log event could not be queued
+        /// </summary>
+        /// <param name="logEvent"></param>
+        protected virtual void OnEnqueueFailed(LogEvent logEvent)
+        {
+            SelfLog.WriteLine("A log event was ignored because it could not be enqueued to the batch");
         }
     }
 }
