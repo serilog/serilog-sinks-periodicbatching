@@ -1,10 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Threading;
 
 namespace Serilog.Sinks.PeriodicBatching
 {
-    class BoundedConcurrentQueue<T> 
+    class BoundedConcurrentQueue<T>
     {
         public const int NonBounded = -1;
 
@@ -13,15 +13,12 @@ namespace Serilog.Sinks.PeriodicBatching
 
         int _counter;
 
-        public BoundedConcurrentQueue() 
-            : this(NonBounded) { }
-
-        public BoundedConcurrentQueue(int queueLimit)
+        public BoundedConcurrentQueue(int? queueLimit = null)
         {
-            if (queueLimit <= 0 && queueLimit != NonBounded)
-                throw new ArgumentOutOfRangeException(nameof(queueLimit), $"Queue limit must be positive, or {NonBounded} (to indicate unlimited).");
+            if (queueLimit.HasValue && queueLimit <= 0)
+                throw new ArgumentOutOfRangeException(nameof(queueLimit), "Queue limit must be positive, or `null` to indicate unbounded.");
 
-            _queueLimit = queueLimit;
+            _queueLimit = queueLimit ?? NonBounded;
         }
 
         public int Count => _queue.Count;

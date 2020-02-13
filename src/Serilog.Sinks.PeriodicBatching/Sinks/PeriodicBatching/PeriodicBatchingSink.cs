@@ -58,7 +58,9 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period)
-            : this(batchSizeLimit, period, NoQueueLimit) { }
+            : this(batchSizeLimit, period, null)
+        {
+        }
 
         /// <summary>
         /// Construct a sink posting to the specified database.
@@ -67,6 +69,17 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="period">The time to wait between checking for event batches.</param>
         /// <param name="queueLimit">Maximum number of events in the queue - use <see cref="NoQueueLimit"/> for an unbounded queue.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
+            : this(batchSizeLimit, period, (int?)queueLimit)
+        {
+        }
+
+        /// <summary>
+        /// Construct a sink posting to the specified database.
+        /// </summary>
+        /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
+        /// <param name="period">The time to wait between checking for event batches.</param>
+        /// <param name="queueLimit">Maximum number of events in the queue.</param>
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int? queueLimit)
         {
             if (batchSizeLimit <= 0)
                 throw new ArgumentOutOfRangeException(nameof(batchSizeLimit), "The batch size limit must be greater than zero.");
