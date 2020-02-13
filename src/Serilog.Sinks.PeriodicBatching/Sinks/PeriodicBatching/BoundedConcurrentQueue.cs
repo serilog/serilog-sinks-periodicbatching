@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Threading;
 
@@ -18,7 +18,7 @@ namespace Serilog.Sinks.PeriodicBatching
             if (queueLimit.HasValue && queueLimit <= 0)
                 throw new ArgumentOutOfRangeException(nameof(queueLimit), "Queue limit must be positive, or `null` to indicate unbounded.");
 
-            _queueLimit = queueLimit ?? NON_BOUNDED;
+            _queueLimit = queueLimit ?? NonBounded;
         }
 
         public int Count => _queue.Count;
