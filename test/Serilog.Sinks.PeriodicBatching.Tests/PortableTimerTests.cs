@@ -1,20 +1,21 @@
-﻿using Serilog.Debugging;
-using Serilog.Sinks.PeriodicBatching;
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Serilog.Debugging;
 using Xunit;
 
 #pragma warning disable 1998
 
-namespace Serilog.Tests.Sinks.PeriodicBatching
+// ReSharper disable AccessToModifiedClosure
+
+namespace Serilog.Sinks.PeriodicBatching.Tests
 {
     public class PortableTimerTests
     {
         [Fact]
         public void WhenItStartsItWaitsUntilHandled_OnDispose()
         {
-            bool wasCalled = false;
+            var wasCalled = false;
 
             var barrier = new Barrier(participantCount: 2);
 
@@ -36,10 +37,10 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         [Fact]
         public void WhenWaitingShouldCancel_OnDispose()
         {
-            bool wasCalled = false;
-            bool writtenToSelflog = false;
+            var wasCalled = false;
+            var writtenToSelfLog = false;
 
-            SelfLog.Enable(_ => writtenToSelflog = true);
+            SelfLog.Enable(_ => writtenToSelfLog = true);
 
             using (var timer = new PortableTimer(async delegate { await Task.Delay(50); wasCalled = true; }))
             {
@@ -49,41 +50,47 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
             Thread.Sleep(100);
 
             Assert.False(wasCalled, "tick handler was called");
-            Assert.False(writtenToSelflog, "message was written to SelfLog");
+            Assert.False(writtenToSelfLog, "message was written to SelfLog");
         }
 
         [Fact]
         public void WhenActiveShouldCancel_OnDispose()
         {
-            bool wasCalled = false;
-            bool writtenToSelflog = false;
+            var wasCalled = false;
+            var writtenToSelfLog = false;
 
-            SelfLog.Enable(_ => writtenToSelflog = true);
+            SelfLog.Enable(_ => writtenToSelfLog = true);
 
             var barrier = new Barrier(participantCount: 2);
 
             using (var timer = new PortableTimer(
                                     async token =>
                                     {
+                                        // ReSharper disable once MethodSupportsCancellation
                                         barrier.SignalAndWait();
-                                        await Task.Delay(50);
+                                        // ReSharper disable once MethodSupportsCancellation
+                                        await Task.Delay(20);
 
                                         wasCalled = true;
-                                        await Task.Delay(50, token);
+                                        Interlocked.MemoryBarrier();
+                                        await Task.Delay(100, token);
                                     }))
             {
                 timer.Start(TimeSpan.FromMilliseconds(20));
                 barrier.SignalAndWait();
             }
+            
+            Thread.Sleep(100);
+            Interlocked.MemoryBarrier();
 
             Assert.True(wasCalled, "tick handler wasn't called");
-            Assert.True(writtenToSelflog, "message wasn't written to SelfLog");
+            Assert.True(writtenToSelfLog, "message wasn't written to SelfLog");
         }
 
         [Fact]
         public void WhenDisposedWillThrow_OnStart()
         {
-            bool wasCalled = false;
+            var wasCalled = false;
             var timer = new PortableTimer(async delegate { wasCalled = true; });
             timer.Start(TimeSpan.FromMilliseconds(100));
             timer.Dispose();
@@ -95,7 +102,7 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         [Fact]
         public void WhenOverlapsShouldProcessOneAtTime_OnTick()
         {
-            bool userHandlerOverlapped = false;
+            var userHandlerOverlapped = false;
 
             PortableTimer timer = null;
             timer = new PortableTimer(
@@ -105,6 +112,7 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
                     {
                         try
                         {
+                            // ReSharper disable once PossibleNullReferenceException
                             timer.Start(TimeSpan.Zero);
                             Thread.Sleep(20);
                         }
@@ -130,6 +138,7 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         public void CanBeDisposedFromMultipleThreads()
         {
             PortableTimer timer = null;
+            // ReSharper disable once PossibleNullReferenceException
             timer = new PortableTimer(async _ => timer.Start(TimeSpan.FromMilliseconds(1)));
 
             timer.Start(TimeSpan.Zero);
@@ -139,5 +148,3 @@ namespace Serilog.Tests.Sinks.PeriodicBatching
         }        
     }
 }
-
-#pragma warning restore 1998
