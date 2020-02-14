@@ -236,3 +236,6 @@ _Pvt_Extensions
 .fake/
 
 BenchmarkDotNet.Artifacts/
+.idea
+*.orig
+
