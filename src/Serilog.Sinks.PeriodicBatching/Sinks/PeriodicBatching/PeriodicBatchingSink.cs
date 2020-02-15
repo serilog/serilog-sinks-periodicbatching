@@ -20,7 +20,7 @@ using Serilog.Debugging;
 using Serilog.Events;
 using System.Threading;
 
-// ReSharper disable MemberCanBePrivate.Global, UnusedMember.Global, VirtualMemberNeverOverridden.Global
+// ReSharper disable MemberCanBePrivate.Global, UnusedMember.Global, VirtualMemberNeverOverridden.Global, ClassWithVirtualMembersNeverInherited.Global
 
 namespace Serilog.Sinks.PeriodicBatching
 {
@@ -81,7 +81,8 @@ namespace Serilog.Sinks.PeriodicBatching
             {
                 BatchSizeLimit = batchSizeLimit,
                 Period = period,
-                EagerlyEmitFirstEvent = true
+                EagerlyEmitFirstEvent = true,
+                QueueLimit = null
             })
         {
             _batchedLogEventSink = this;
