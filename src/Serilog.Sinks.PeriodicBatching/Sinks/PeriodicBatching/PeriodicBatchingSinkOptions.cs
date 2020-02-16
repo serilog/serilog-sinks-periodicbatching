@@ -24,24 +24,24 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <summary>
         /// Eagerly emit a batch containing the first received event, regardless of
         /// the target batch size or batching time. This helps with perceived "liveness"
-        /// when running/debugging applications interactively.
+        /// when running/debugging applications interactively. The default is <c>true</c>.
         /// </summary>
-        public bool EagerlyEmitFirstEvent { get; set; }
+        public bool EagerlyEmitFirstEvent { get; set; } = true;
 
         /// <summary>
-        /// The maximum number of events to include in a single batch.
+        /// The maximum number of events to include in a single batch. The default is <c>1000</c>.
         /// </summary>
-        public int BatchSizeLimit { get; set; }
+        public int BatchSizeLimit { get; set; } = 1000;
 
         /// <summary>
-        /// The time to wait between checking for event batches.
+        /// The time to wait between checking for event batches. The default is two seconds.
         /// </summary>
-        public TimeSpan Period { get; set; }
+        public TimeSpan Period { get; set; } = TimeSpan.FromSeconds(2);
 
         /// <summary>
         /// Maximum number of events to hold in the sink's internal queue, or <c>null</c>
-        /// for an unbounded queue.
+        /// for an unbounded queue. The default is <c>10000</c>.
         /// </summary>
-        public int? QueueLimit { get; set; }
+        public int? QueueLimit { get; set; } = 100000;
     }
 }
