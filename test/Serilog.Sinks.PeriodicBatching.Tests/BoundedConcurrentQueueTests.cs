@@ -1,18 +1,17 @@
-﻿using Serilog.Sinks.PeriodicBatching;
-using System;
+﻿using System;
 using Xunit;
 
-namespace Serilog.Tests.Sinks.PeriodicBatching
+namespace Serilog.Sinks.PeriodicBatching.Tests
 {
     public class BoundedConcurrentQueueTests
     {
         [Fact]
         public void WhenBoundedShouldNotExceedLimit()
         {
-            var limit = 100;
+            const int limit = 100;
             var queue = new BoundedConcurrentQueue<int>(limit);
 
-            for (int i = 0; i < limit * 2; i++)
+            for (var i = 0; i < limit * 2; i++)
             {
                 queue.TryEnqueue(i);
             }

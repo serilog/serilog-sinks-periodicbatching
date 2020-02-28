@@ -1,4 +1,4 @@
-﻿// Copyright 2013-2016 Serilog Contributors
+﻿// Copyright 2013-2020 Serilog Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -20,6 +19,8 @@ using Serilog.Core;
 using Serilog.Debugging;
 using Serilog.Events;
 using System.Threading;
+
+// ReSharper disable MemberCanBePrivate.Global, UnusedMember.Global, VirtualMemberNeverOverridden.Global, ClassWithVirtualMembersNeverInherited.Global
 
 namespace Serilog.Sinks.PeriodicBatching
 {
@@ -33,9 +34,16 @@ namespace Serilog.Sinks.PeriodicBatching
     /// that want to change this behavior need to either implement from scratch, or
     /// embed retry logic in the batch emitting functions.
     /// </remarks>
-    public abstract class PeriodicBatchingSink : ILogEventSink, IDisposable
+    public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEventSink
     {
+        /// <summary>
+        /// Constant used to indicate that the internal queue shouldn't be limited.
+        /// </summary>
+        public const int NoQueueLimit = BoundedConcurrentQueue<LogEvent>.Unbounded;
+
+        readonly IBatchedLogEventSink _batchedLogEventSink;
         readonly int _batchSizeLimit;
+        readonly bool _eagerlyEmitFirstEvent;
         readonly BoundedConcurrentQueue<LogEvent> _queue;
         readonly BatchedConnectionStatus _status;
         readonly Queue<LogEvent> _waitingBatch = new Queue<LogEvent>();
@@ -48,29 +56,73 @@ namespace Serilog.Sinks.PeriodicBatching
         bool _started;
 
         /// <summary>
-        /// Construct a sink posting to the specified database.
+        /// Construct a <see cref="PeriodicBatchingSink"/>.
+        /// </summary>
+        /// <param name="batchedSink">A <see cref="IBatchedLogEventSink"/> to send log event batches to. Batches and empty
+        /// batch notifications will not be sent concurrently. When the <see cref="PeriodicBatchingSink"/> is disposed,
+        /// it will dispose this object if possible.</param>
+        /// <param name="options">Options controlling behavior of the sink.</param>
+        public PeriodicBatchingSink(IBatchedLogEventSink batchedSink, PeriodicBatchingSinkOptions options)
+            : this(options)
+        {
+            _batchedLogEventSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
+        }
+
+        /// <summary>
+        /// Construct a <see cref="PeriodicBatchingSink"/>. New code should avoid subclassing
+        /// <see cref="PeriodicBatchingSink"/> and use
+        /// <see cref="PeriodicBatchingSink(Serilog.Sinks.PeriodicBatching.IBatchedLogEventSink,Serilog.Sinks.PeriodicBatching.PeriodicBatchingSinkOptions)"/>
+        /// instead.
         /// </summary>
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period)
+            : this(new PeriodicBatchingSinkOptions
+            {
+                BatchSizeLimit = batchSizeLimit,
+                Period = period,
+                EagerlyEmitFirstEvent = true,
+                QueueLimit = null
+            })
         {
-            _batchSizeLimit = batchSizeLimit;
-            _queue = new BoundedConcurrentQueue<LogEvent>();
-            _status = new BatchedConnectionStatus(period);
-            
-            _timer = new PortableTimer(cancel => OnTick());
+            _batchedLogEventSink = this;
         }
 
         /// <summary>
-        /// Construct a sink posting to the specified database.
+        /// Construct a <see cref="PeriodicBatchingSink"/>. New code should avoid subclassing
+        /// <see cref="PeriodicBatchingSink"/> and use
+        /// <see cref="PeriodicBatchingSink(Serilog.Sinks.PeriodicBatching.IBatchedLogEventSink,Serilog.Sinks.PeriodicBatching.PeriodicBatchingSinkOptions)"/>
+        /// instead.
         /// </summary>
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
-        /// <param name="queueLimit">Maximum number of events in the queue.</param>
+        /// <param name="queueLimit">Maximum number of events in the queue - use <see cref="NoQueueLimit"/> for an unbounded queue.</param>
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
-            : this(batchSizeLimit, period)
+            : this(new PeriodicBatchingSinkOptions
+            {
+                BatchSizeLimit = batchSizeLimit,
+                Period = period,
+                EagerlyEmitFirstEvent = true,
+                QueueLimit = queueLimit
+            })
         {
-            _queue = new BoundedConcurrentQueue<LogEvent>(queueLimit);
+            _batchedLogEventSink = this;
+        }
+
+        PeriodicBatchingSink(PeriodicBatchingSinkOptions options)
+        {
+            if (options == null) throw new ArgumentNullException(nameof(options));
+
+            if (options.BatchSizeLimit <= 0)
+                throw new ArgumentOutOfRangeException(nameof(options), "The batch size limit must be greater than zero.");
+            if (options.Period <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(options), "The period must be greater than zero.");
+
+            _batchSizeLimit = options.BatchSizeLimit;
+            _queue = new BoundedConcurrentQueue<LogEvent>(options.QueueLimit);
+            _status = new BatchedConnectionStatus(options.Period);
+            _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
+            _timer = new PortableTimer(cancel => OnTick());
         }
 
         void CloseAndFlush()
@@ -88,9 +140,12 @@ namespace Serilog.Sinks.PeriodicBatching
             // This is the place where SynchronizationContext.Current is unknown and can be != null
             // so we prevent possible deadlocks here for sync-over-async downstream implementations 
             ResetSyncContextAndWait(OnTick);
+
+            if (_batchedLogEventSink != this)
+                (_batchedLogEventSink as IDisposable)?.Dispose();
         }
 
-        void ResetSyncContextAndWait(Func<Task> taskFactory)
+        static void ResetSyncContextAndWait(Func<Task> taskFactory)
         {
             var prevContext = SynchronizationContext.Current;
             SynchronizationContext.SetSynchronizationContext(null);
@@ -154,9 +209,8 @@ namespace Serilog.Sinks.PeriodicBatching
                 bool batchWasFull;
                 do
                 {
-                    LogEvent next;
                     while (_waitingBatch.Count < _batchSizeLimit &&
-                        _queue.TryDequeue(out next))
+                           _queue.TryDequeue(out var next))
                     {
                         if (CanInclude(next))
                             _waitingBatch.Enqueue(next);
@@ -164,11 +218,11 @@ namespace Serilog.Sinks.PeriodicBatching
 
                     if (_waitingBatch.Count == 0)
                     {
-                        await OnEmptyBatchAsync();
+                        await _batchedLogEventSink.OnEmptyBatchAsync();
                         return;
                     }
 
-                    await EmitBatchAsync(_waitingBatch);
+                    await _batchedLogEventSink.EmitBatchAsync(_waitingBatch);
 
                     batchWasFull = _waitingBatch.Count >= _batchSizeLimit;
                     _waitingBatch.Clear();
@@ -188,8 +242,7 @@ namespace Serilog.Sinks.PeriodicBatching
 
                 if (_status.ShouldDropQueue)
                 {
-                    LogEvent evt;
-                    while (_queue.TryDequeue(out evt)) { }
+                    while (_queue.TryDequeue(out _)) { }
                 }
 
                 lock (_stateLock)
@@ -230,11 +283,20 @@ namespace Serilog.Sinks.PeriodicBatching
                     if (_unloading) return;
                     if (!_started)
                     {
-                        // Special handling to try to get the first event across as quickly
-                        // as possible to show we're alive!
                         _queue.TryEnqueue(logEvent);
                         _started = true;
-                        SetTimer(TimeSpan.Zero);
+
+                        if (_eagerlyEmitFirstEvent)
+                        {
+                            // Special handling to try to get the first event across as quickly
+                            // as possible to show we're alive!
+                            SetTimer(TimeSpan.Zero);
+                        }
+                        else
+                        {
+                            SetTimer(_status.NextInterval);
+                        }
+
                         return;
                     }
                 }
@@ -247,9 +309,10 @@ namespace Serilog.Sinks.PeriodicBatching
         /// Determine whether a queued log event should be included in the batch. If
         /// an override returns false, the event will be dropped.
         /// </summary>
-        /// <param name="evt"></param>
-        /// <returns></returns>
-        protected virtual bool CanInclude(LogEvent evt)
+        /// <param name="logEvent">An event to test for inclusion.</param>
+        /// <returns>True if the event should be included in the batch; otherwise, false.</returns>
+        // ReSharper disable once UnusedParameter.Global
+        protected virtual bool CanInclude(LogEvent logEvent)
         {
             return true;
         }
@@ -276,5 +339,8 @@ namespace Serilog.Sinks.PeriodicBatching
         {
             OnEmptyBatch();
         }
+        
+        Task IBatchedLogEventSink.EmitBatchAsync(IEnumerable<LogEvent> batch) => EmitBatchAsync(batch);
+        Task IBatchedLogEventSink.OnEmptyBatchAsync() => OnEmptyBatchAsync();
     }
 }
