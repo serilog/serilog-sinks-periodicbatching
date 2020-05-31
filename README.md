@@ -39,10 +39,10 @@ public static class LoggerSinkExampleConfiguration
         
         var batchingOptions = new PeriodicBatchingSinkOptions
         {
-            BatchSize = 100,
+            BatchSizeLimit = 100,
             Period = TimeSpan.FromSeconds(2),
             EagerlyEmitFirstEvent = true,
-            QueueSizeLimit = 10000
+            QueueLimit = 10000
         };
         
         var batchingSink = new PeriodicBatchingSink(exampleSink, batchingOptions);
