@@ -19,8 +19,6 @@
     <RepositoryUrl>https://github.com/serilog/serilog-sinks-periodicbatching</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
-    <!-- Don't reference the full NETStandard.Library -->
-    <DisableImplicitFrameworkReferences Condition=" '$(TargetFramework)' == 'net45' ">true</DisableImplicitFrameworkReferences>
   </PropertyGroup>
 
   <ItemGroup>
