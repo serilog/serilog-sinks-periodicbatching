@@ -60,6 +60,16 @@ namespace Serilog.Sinks.PeriodicBatching.Tests
         }
     }
 
+    class NullBatchedSink : PeriodicBatchingSink
+    {
+        public NullBatchedSink(int batchSizeLimit, TimeSpan period, int queueLimit)
+#pragma warning disable 618
+            : base(batchSizeLimit, period, queueLimit)
+#pragma warning restore 618
+        {
+        }
+    }
+
     public class PeriodicBatchingSinkTests
     {
         static readonly TimeSpan TinyWait = TimeSpan.FromMilliseconds(200);
@@ -111,6 +121,14 @@ namespace Serilog.Sinks.PeriodicBatching.Tests
             Assert.Equal(1, bs.Batches.Count);
             Assert.True(bs.IsDisposed);
             Assert.False(bs.WasCalledAfterDisposal);
+        }
+
+        [Fact]
+        public void SubclassesCanBeConstructedUsingNoQueueLimitConstant()
+        {
+#pragma warning disable 618
+            var _ = new NullBatchedSink(batchSizeLimit: 100, TimeSpan.FromSeconds(2), queueLimit: PeriodicBatchingSink.NoQueueLimit);
+#pragma warning restore 618
         }
     }
 }

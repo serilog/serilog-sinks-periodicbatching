@@ -37,9 +37,10 @@ namespace Serilog.Sinks.PeriodicBatching
     public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEventSink
     {
         /// <summary>
-        /// Constant used to indicate that the internal queue shouldn't be limited.
+        /// Constant used with legacy constructor to indicate that the internal queue shouldn't be limited.
         /// </summary>
-        public const int NoQueueLimit = BoundedConcurrentQueue<LogEvent>.Unbounded;
+        [Obsolete("Implement `IBatchedLogEventSink` and use the `PeriodicBatchingSinkOptions` constructor.")]
+        public const int NoQueueLimit = -1;
 
         readonly IBatchedLogEventSink _batchedLogEventSink;
         readonly int _batchSizeLimit;
@@ -76,6 +77,7 @@ namespace Serilog.Sinks.PeriodicBatching
         /// </summary>
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
+        [Obsolete("Implement `IBatchedLogEventSink` and use the `PeriodicBatchingSinkOptions` constructor.")]
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period)
             : this(new PeriodicBatchingSinkOptions
             {
@@ -97,13 +99,14 @@ namespace Serilog.Sinks.PeriodicBatching
         /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
         /// <param name="period">The time to wait between checking for event batches.</param>
         /// <param name="queueLimit">Maximum number of events in the queue - use <see cref="NoQueueLimit"/> for an unbounded queue.</param>
+        [Obsolete("Implement `IBatchedLogEventSink` and use the `PeriodicBatchingSinkOptions` constructor.")]
         protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
             : this(new PeriodicBatchingSinkOptions
             {
                 BatchSizeLimit = batchSizeLimit,
                 Period = period,
                 EagerlyEmitFirstEvent = true,
-                QueueLimit = queueLimit
+                QueueLimit = queueLimit == NoQueueLimit ? (int?)null : queueLimit
             })
         {
             _batchedLogEventSink = this;
@@ -199,6 +202,7 @@ namespace Serilog.Sinks.PeriodicBatching
         protected virtual async Task EmitBatchAsync(IEnumerable<LogEvent> events)
 #pragma warning restore 1998
         {
+            // ReSharper disable once MethodHasAsyncOverload
             EmitBatch(events);
         }
 
@@ -337,6 +341,7 @@ namespace Serilog.Sinks.PeriodicBatching
         protected virtual async Task OnEmptyBatchAsync()
 #pragma warning restore 1998
         {
+            // ReSharper disable once MethodHasAsyncOverload
             OnEmptyBatch();
         }
         

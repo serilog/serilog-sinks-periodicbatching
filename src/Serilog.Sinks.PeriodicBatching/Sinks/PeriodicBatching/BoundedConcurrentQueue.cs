@@ -20,7 +20,7 @@ namespace Serilog.Sinks.PeriodicBatching
 {
     class BoundedConcurrentQueue<T>
     {
-        public const int Unbounded = -1;
+        const int Unbounded = -1;
 
         readonly ConcurrentQueue<T> _queue = new ConcurrentQueue<T>();
         readonly int _queueLimit;
