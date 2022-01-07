@@ -40,7 +40,10 @@ namespace Serilog.Sinks.PeriodicBatching
             _onTick = onTick;
 
 #if THREADING_TIMER
-            _timer = new Timer(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
+#if EXECUTION_CONTEXT
+            using (ExecutionContext.SuppressFlow())
+#endif
+                _timer = new Timer(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
 #endif
         }
 
@@ -88,7 +91,7 @@ namespace Serilog.Sinks.PeriodicBatching
                         {
                             return;
                         }
-                    }                    
+                    }
 
                     _running = true;
                 }
@@ -115,7 +118,7 @@ namespace Serilog.Sinks.PeriodicBatching
         public void Dispose()
         {
             _cancel.Cancel();
-            
+
             lock (_stateLock)
             {
                 if (_disposed)

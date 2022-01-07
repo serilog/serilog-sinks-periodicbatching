@@ -40,7 +40,7 @@ namespace Serilog.Sinks.PeriodicBatching
 
         /// <summary>
         /// Maximum number of events to hold in the sink's internal queue, or <c>null</c>
-        /// for an unbounded queue. The default is <c>10000</c>.
+        /// for an unbounded queue. The default is <c>100000</c>.
         /// </summary>
         public int? QueueLimit { get; set; } = 100000;
     }
