@@ -1,41 +1,53 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The periodic batching sink for Serilog</Description>
-    <VersionPrefix>2.3.2</VersionPrefix>
+    <Description>Buffer batches of log events to be flushed asynchronously.</Description>
+    <VersionPrefix>3.0.0</VersionPrefix>
     <Authors>Serilog Contributors</Authors>
     <TargetFrameworks>net45;netstandard1.1;netstandard1.2;netstandard2.0;netstandard2.1</TargetFrameworks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <AssemblyName>Serilog.Sinks.PeriodicBatching</AssemblyName>
     <RootNamespace>Serilog</RootNamespace>
     <AssemblyOriginatorKeyFile>../../assets/Serilog.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
     <PublicSign Condition=" '$(OS)' != 'Windows_NT' ">true</PublicSign>
-    <PackageId>Serilog.Sinks.PeriodicBatching</PackageId>
     <PackageTags>serilog;batching;timer</PackageTags>
-    <PackageIconUrl>http://serilog.net/images/serilog-sink-nuget.png</PackageIconUrl>
-    <PackageProjectUrl>http://serilog.net</PackageProjectUrl>
-    <PackageLicenseUrl>http://www.apache.org/licenses/LICENSE-2.0</PackageLicenseUrl>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/serilog/serilog-sinks-periodicbatching</PackageProjectUrl>
     <RepositoryUrl>https://github.com/serilog/serilog-sinks-periodicbatching</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'netstandard1.2' ">
+    <DefineConstants>$(DefineConstants);FEATURE_THREADING_TIMER</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'net45' or '$(TargetFramework)' == 'netstandard2.0' ">
+    <DefineConstants>$(DefineConstants);FEATURE_THREADING_TIMER;FEATURE_EXECUTION_CONTEXT</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'netstandard2.1' ">
+    <DefineConstants>$(DefineConstants);FEATURE_THREADING_TIMER;FEATURE_EXECUTION_CONTEXT;FEATURE_ASYNCDISPOSABLE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Serilog" Version="2.0.0" />
   </ItemGroup>
-
+    
   <ItemGroup Condition=" '$(TargetFramework)' == 'net45' ">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.0" PrivateAssets="all" />
     <Reference Include="System" />
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
-
-  <PropertyGroup Condition=" '$(TargetFramework)' == 'netstandard1.2' ">
-    <DefineConstants>$(DefineConstants);THREADING_TIMER</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition=" '$(TargetFramework)' == 'net45' or '$(TargetFramework)' == 'netstandard2.0' or '$(TargetFramework)' == 'netstandard2.1' ">
-    <DefineConstants>$(DefineConstants);THREADING_TIMER;EXECUTION_CONTEXT</DefineConstants>
-  </PropertyGroup>
+    
+  <ItemGroup>
+    <None Include="..\..\assets\icon.png" Pack="true" Visible="false" PackagePath="" />
+    <PackageReference Include="Nullable" Version="1.3.1" PrivateAssets="All" />
+  </ItemGroup>
 
 </Project>
