@@ -1,4 +1,4 @@
-// Copyright 2013-2020 Serilog Contributors
+// Copyright © Serilog Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ namespace Serilog.Sinks.PeriodicBatching
     {
         const int Unbounded = -1;
 
-        readonly ConcurrentQueue<T> _queue = new ConcurrentQueue<T>();
+        readonly ConcurrentQueue<T> _queue = new();
         readonly int _queueLimit;
 
         int _counter;

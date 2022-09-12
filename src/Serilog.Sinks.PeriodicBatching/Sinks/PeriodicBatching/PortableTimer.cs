@@ -1,4 +1,4 @@
-﻿// Copyright 2013-2020 Serilog Contributors
+﻿// Copyright © Serilog Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,12 +21,12 @@ namespace Serilog.Sinks.PeriodicBatching
 {
     class PortableTimer : IDisposable
     {
-        readonly object _stateLock = new object();
+        readonly object _stateLock = new();
 
         readonly Func<CancellationToken, Task> _onTick;
-        readonly CancellationTokenSource _cancel = new CancellationTokenSource();
+        readonly CancellationTokenSource _cancel = new();
 
-#if THREADING_TIMER
+#if FEATURE_THREADING_TIMER
         readonly Timer _timer;
 #endif
 
@@ -35,12 +35,10 @@ namespace Serilog.Sinks.PeriodicBatching
 
         public PortableTimer(Func<CancellationToken, Task> onTick)
         {
-            if (onTick == null) throw new ArgumentNullException(nameof(onTick));
+            _onTick = onTick ?? throw new ArgumentNullException(nameof(onTick));
 
-            _onTick = onTick;
-
-#if THREADING_TIMER
-#if EXECUTION_CONTEXT
+#if FEATURE_THREADING_TIMER
+#if FEATURE_EXECUTION_CONTEXT
             using (ExecutionContext.SuppressFlow())
 #endif
                 _timer = new Timer(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
@@ -56,7 +54,7 @@ namespace Serilog.Sinks.PeriodicBatching
                 if (_disposed)
                     throw new ObjectDisposedException(nameof(PortableTimer));
 
-#if THREADING_TIMER
+#if FEATURE_THREADING_TIMER
                 _timer.Change(interval, Timeout.InfiniteTimeSpan);
 #else
                 Task.Delay(interval, _cancel.Token)
@@ -131,7 +129,7 @@ namespace Serilog.Sinks.PeriodicBatching
                     Monitor.Wait(_stateLock);
                 }
 
-#if THREADING_TIMER
+#if FEATURE_THREADING_TIMER
                 _timer.Dispose();
 #endif
 
