@@ -109,8 +109,6 @@ namespace Serilog.Sinks.PeriodicBatching
 
             _timer.Dispose();
 
-            // This is the place where SynchronizationContext.Current is unknown and can be != null
-            // so we prevent possible deadlocks here for sync-over-async downstream implementations.
             await OnTick().ConfigureAwait(false);
 
             if (_batchedLogEventSink is IAsyncDisposable asyncDisposable)
