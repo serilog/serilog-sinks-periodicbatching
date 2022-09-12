@@ -112,7 +112,7 @@ namespace Serilog.Sinks.PeriodicBatching
             await OnTick().ConfigureAwait(false);
 
             if (_batchedLogEventSink is IAsyncDisposable asyncDisposable)
-                await asyncDisposable.DisposeAsync();
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
             else
                 (_batchedLogEventSink as IDisposable)?.Dispose();
         }
@@ -133,11 +133,11 @@ namespace Serilog.Sinks.PeriodicBatching
 
                     if (_waitingBatch.Count == 0)
                     {
-                        await _batchedLogEventSink.OnEmptyBatchAsync();
+                        await _batchedLogEventSink.OnEmptyBatchAsync().ConfigureAwait(false);
                         return;
                     }
 
-                    await _batchedLogEventSink.EmitBatchAsync(_waitingBatch);
+                    await _batchedLogEventSink.EmitBatchAsync(_waitingBatch).ConfigureAwait(false);
 
                     batchWasFull = _waitingBatch.Count >= _batchSizeLimit;
                     _waitingBatch.Clear();
