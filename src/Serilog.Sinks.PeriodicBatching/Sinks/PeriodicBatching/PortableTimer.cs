@@ -13,49 +13,46 @@
 // limitations under the License.
 
 using Serilog.Debugging;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Serilog.Sinks.PeriodicBatching
+namespace Serilog.Sinks.PeriodicBatching;
+
+class PortableTimer : IDisposable
 {
-    class PortableTimer : IDisposable
-    {
-        readonly object _stateLock = new();
+    readonly object _stateLock = new();
 
-        readonly Func<CancellationToken, Task> _onTick;
-        readonly CancellationTokenSource _cancel = new();
+    readonly Func<CancellationToken, Task> _onTick;
+    readonly CancellationTokenSource _cancel = new();
 
 #if FEATURE_THREADING_TIMER
-        readonly Timer _timer;
+    readonly Timer _timer;
 #endif
 
-        bool _running;
-        bool _disposed;
+    bool _running;
+    bool _disposed;
 
-        public PortableTimer(Func<CancellationToken, Task> onTick)
-        {
-            _onTick = onTick ?? throw new ArgumentNullException(nameof(onTick));
+    public PortableTimer(Func<CancellationToken, Task> onTick)
+    {
+        _onTick = onTick ?? throw new ArgumentNullException(nameof(onTick));
 
 #if FEATURE_THREADING_TIMER
 #if FEATURE_EXECUTION_CONTEXT
-            using (ExecutionContext.SuppressFlow())
+        using (ExecutionContext.SuppressFlow())
 #endif
-                _timer = new Timer(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
+            _timer = new(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
 #endif
-        }
+    }
 
-        public void Start(TimeSpan interval)
+    public void Start(TimeSpan interval)
+    {
+        if (interval < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval));
+
+        lock (_stateLock)
         {
-            if (interval < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval));
-
-            lock (_stateLock)
-            {
-                if (_disposed)
-                    throw new ObjectDisposedException(nameof(PortableTimer));
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(PortableTimer));
 
 #if FEATURE_THREADING_TIMER
-                _timer.Change(interval, Timeout.InfiniteTimeSpan);
+            _timer.Change(interval, Timeout.InfiniteTimeSpan);
 #else
                 Task.Delay(interval, _cancel.Token)
                     .ContinueWith(
@@ -64,59 +61,13 @@ namespace Serilog.Sinks.PeriodicBatching
                         TaskContinuationOptions.DenyChildAttach,
                         TaskScheduler.Default);
 #endif
-            }
         }
+    }
 
-        async void OnTick()
+    async void OnTick()
+    {
+        try
         {
-            try
-            {
-                lock (_stateLock)
-                {
-                    if (_disposed)
-                    {
-                        return;
-                    }
-
-                    // There's a little bit of raciness here, but it's needed to support the
-                    // current API, which allows the tick handler to reenter and set the next interval.
-
-                    if (_running)
-                    {
-                        Monitor.Wait(_stateLock);
-
-                        if (_disposed)
-                        {
-                            return;
-                        }
-                    }
-
-                    _running = true;
-                }
-
-                if (!_cancel.Token.IsCancellationRequested)
-                {
-                    await _onTick(_cancel.Token);
-                }
-            }
-            catch (OperationCanceledException tcx)
-            {
-                SelfLog.WriteLine("The timer was canceled during invocation: {0}", tcx);
-            }
-            finally
-            {
-                lock (_stateLock)
-                {
-                    _running = false;
-                    Monitor.PulseAll(_stateLock);
-                }
-            }
-        }
-
-        public void Dispose()
-        {
-            _cancel.Cancel();
-
             lock (_stateLock)
             {
                 if (_disposed)
@@ -124,17 +75,62 @@ namespace Serilog.Sinks.PeriodicBatching
                     return;
                 }
 
-                while (_running)
+                // There's a little bit of raciness here, but it's needed to support the
+                // current API, which allows the tick handler to reenter and set the next interval.
+
+                if (_running)
                 {
                     Monitor.Wait(_stateLock);
+
+                    if (_disposed)
+                    {
+                        return;
+                    }
                 }
 
+                _running = true;
+            }
+
+            if (!_cancel.Token.IsCancellationRequested)
+            {
+                await _onTick(_cancel.Token);
+            }
+        }
+        catch (OperationCanceledException tcx)
+        {
+            SelfLog.WriteLine("The timer was canceled during invocation: {0}", tcx);
+        }
+        finally
+        {
+            lock (_stateLock)
+            {
+                _running = false;
+                Monitor.PulseAll(_stateLock);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _cancel.Cancel();
+
+        lock (_stateLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            while (_running)
+            {
+                Monitor.Wait(_stateLock);
+            }
+
 #if FEATURE_THREADING_TIMER
-                _timer.Dispose();
+            _timer.Dispose();
 #endif
 
-                _disposed = true;
-            }
+            _disposed = true;
         }
     }
 }

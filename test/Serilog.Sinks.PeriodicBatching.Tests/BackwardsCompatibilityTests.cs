@@ -1,6 +1,5 @@
 #if FEATURE_ASYNCDISPOSABLE
 
-using System.Threading.Tasks;
 using Serilog.Sinks.PeriodicBatching.Tests.Support;
 using Xunit;
 
