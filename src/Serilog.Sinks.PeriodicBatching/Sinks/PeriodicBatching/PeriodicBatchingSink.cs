@@ -32,11 +32,17 @@ namespace Serilog.Sinks.PeriodicBatching
     /// that want to change this behavior need to either implement from scratch, or
     /// embed retry logic in the batch emitting functions.
     /// </remarks>
-    public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
+    public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEventSink
 #if FEATURE_ASYNCDISPOSABLE
         , IAsyncDisposable
 #endif
     {
+        /// <summary>
+        /// Constant used with legacy constructor to indicate that the internal queue shouldn't be limited.
+        /// </summary>
+        [Obsolete("Implement `IBatchedLogEventSink` and use the `PeriodicBatchingSinkOptions` constructor.")]
+        public const int NoQueueLimit = -1;
+
         readonly IBatchedLogEventSink _batchedLogEventSink;
         readonly int _batchSizeLimit;
         readonly bool _eagerlyEmitFirstEvent;
@@ -59,9 +65,57 @@ namespace Serilog.Sinks.PeriodicBatching
         /// it will dispose this object if possible.</param>
         /// <param name="options">Options controlling behavior of the sink.</param>
         public PeriodicBatchingSink(IBatchedLogEventSink batchedSink, PeriodicBatchingSinkOptions options)
+            : this(options)
+        {
+            _batchedLogEventSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
+        }
+
+        /// <summary>
+        /// Construct a <see cref="PeriodicBatchingSink"/>. New code should avoid subclassing
+        /// <see cref="PeriodicBatchingSink"/> and use
+        /// <see cref="PeriodicBatchingSink(Serilog.Sinks.PeriodicBatching.IBatchedLogEventSink,Serilog.Sinks.PeriodicBatching.PeriodicBatchingSinkOptions)"/>
+        /// instead.
+        /// </summary>
+        /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
+        /// <param name="period">The time to wait between checking for event batches.</param>
+        [Obsolete("Implement `IBatchedLogEventSink` and use the `PeriodicBatchingSinkOptions` constructor.")]
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period)
+            : this(new PeriodicBatchingSinkOptions
+            {
+                BatchSizeLimit = batchSizeLimit,
+                Period = period,
+                EagerlyEmitFirstEvent = true,
+                QueueLimit = null
+            })
+        {
+            _batchedLogEventSink = this;
+        }
+
+        /// <summary>
+        /// Construct a <see cref="PeriodicBatchingSink"/>. New code should avoid subclassing
+        /// <see cref="PeriodicBatchingSink"/> and use
+        /// <see cref="PeriodicBatchingSink(Serilog.Sinks.PeriodicBatching.IBatchedLogEventSink,Serilog.Sinks.PeriodicBatching.PeriodicBatchingSinkOptions)"/>
+        /// instead.
+        /// </summary>
+        /// <param name="batchSizeLimit">The maximum number of events to include in a single batch.</param>
+        /// <param name="period">The time to wait between checking for event batches.</param>
+        /// <param name="queueLimit">Maximum number of events in the queue - use <see cref="NoQueueLimit"/> for an unbounded queue.</param>
+        [Obsolete("Implement `IBatchedLogEventSink` and use the `PeriodicBatchingSinkOptions` constructor.")]
+        protected PeriodicBatchingSink(int batchSizeLimit, TimeSpan period, int queueLimit)
+            : this(new PeriodicBatchingSinkOptions
+            {
+                BatchSizeLimit = batchSizeLimit,
+                Period = period,
+                EagerlyEmitFirstEvent = true,
+                QueueLimit = queueLimit == NoQueueLimit ? null : queueLimit
+            })
+        {
+            _batchedLogEventSink = this;
+        }
+
+        PeriodicBatchingSink(PeriodicBatchingSinkOptions options)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
-            _batchedLogEventSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
 
             if (options.BatchSizeLimit <= 0)
                 throw new ArgumentOutOfRangeException(nameof(options), "The batch size limit must be greater than zero.");
@@ -73,14 +127,33 @@ namespace Serilog.Sinks.PeriodicBatching
             _status = new BatchedConnectionStatus(options.Period);
             _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
             _timer = new PortableTimer(_ => OnTick());
-        }
 
-        /// <inheritdoc/>
+            // Initialized by externally-callable constructors.
+            _batchedLogEventSink = null!;
+        }
+        
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        /// <filterpriority>2</filterpriority>
         public void Dispose()
         {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Free resources held by the sink.
+        /// </summary>
+        /// <param name="disposing">If true, called because the object is being disposed; if false,
+        /// the object is being disposed from the finalizer.</param>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposing) return;
+            
             lock (_stateLock)
             {
-                if (!_started || _unloading)
+                if (_unloading)
                     return;
 
                 _unloading = true;
@@ -101,7 +174,7 @@ namespace Serilog.Sinks.PeriodicBatching
         {
             lock (_stateLock)
             {
-                if (!_started || _unloading)
+                if (_unloading)
                     return;
 
                 _unloading = true;
@@ -111,13 +184,48 @@ namespace Serilog.Sinks.PeriodicBatching
 
             await OnTick().ConfigureAwait(false);
 
+            if (ReferenceEquals(_batchedLogEventSink, this))
+            {
+                // The sink is being used in the obsolete inheritance-based mode. Old sinks won't
+                // override something like `DisposeAsyncCore()`; we just forward to the synchronous
+                // `Dispose()` method to ensure whatever cleanup they do still occurs.
+                Dispose(true);
+                return;
+            }
+
             if (_batchedLogEventSink is IAsyncDisposable asyncDisposable)
                 await asyncDisposable.DisposeAsync().ConfigureAwait(false);
             else
                 (_batchedLogEventSink as IDisposable)?.Dispose();
+
+            GC.SuppressFinalize(this);
         }
 #endif
 
+        /// <summary>
+        /// Emit a batch of log events, running to completion synchronously.
+        /// </summary>
+        /// <param name="events">The events to emit.</param>
+        /// <remarks>Override either <see cref="EmitBatch"/> or <see cref="EmitBatchAsync"/>,
+        /// not both.</remarks>
+        protected virtual void EmitBatch(IEnumerable<LogEvent> events)
+        {
+        }
+
+        /// <summary>
+        /// Emit a batch of log events, running asynchronously.
+        /// </summary>
+        /// <param name="events">The events to emit.</param>
+        /// <remarks>Override either <see cref="EmitBatchAsync"/> or <see cref="EmitBatch"/>,
+        /// not both. </remarks>
+#pragma warning disable 1998
+        protected virtual async Task EmitBatchAsync(IEnumerable<LogEvent> events)
+#pragma warning restore 1998
+        {
+            // ReSharper disable once MethodHasAsyncOverload
+            EmitBatch(events);
+        }
+        
         async Task OnTick()
         {
             try
@@ -219,5 +327,44 @@ namespace Serilog.Sinks.PeriodicBatching
 
             _queue.TryEnqueue(logEvent);
         }
+        
+        /// <summary>
+        /// Determine whether a queued log event should be included in the batch. If
+        /// an override returns false, the event will be dropped.
+        /// </summary>
+        /// <param name="logEvent">An event to test for inclusion.</param>
+        /// <returns>True if the event should be included in the batch; otherwise, false.</returns>
+        // ReSharper disable once UnusedParameter.Global
+        protected virtual bool CanInclude(LogEvent logEvent)
+        {
+            return true;
+        }
+
+        /// <summary>
+        /// Allows derived sinks to perform periodic work without requiring additional threads
+        /// or timers (thus avoiding additional flush/shut-down complexity).
+        /// </summary>
+        /// <remarks>Override either <see cref="OnEmptyBatch"/> or <see cref="OnEmptyBatchAsync"/>,
+        /// not both. </remarks>
+        protected virtual void OnEmptyBatch()
+        {
+        }
+
+        /// <summary>
+        /// Allows derived sinks to perform periodic work without requiring additional threads
+        /// or timers (thus avoiding additional flush/shut-down complexity).
+        /// </summary>
+        /// <remarks>Override either <see cref="OnEmptyBatchAsync"/> or <see cref="OnEmptyBatch"/>,
+        /// not both. </remarks>
+#pragma warning disable 1998
+        protected virtual async Task OnEmptyBatchAsync()
+#pragma warning restore 1998
+        {
+            // ReSharper disable once MethodHasAsyncOverload
+            OnEmptyBatch();
+        }
+        
+        Task IBatchedLogEventSink.EmitBatchAsync(IEnumerable<LogEvent> batch) => EmitBatchAsync(batch);
+        Task IBatchedLogEventSink.OnEmptyBatchAsync() => OnEmptyBatchAsync();
     }
 }
