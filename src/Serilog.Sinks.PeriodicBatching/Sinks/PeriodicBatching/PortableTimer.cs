@@ -42,7 +42,7 @@ class PortableTimer : IDisposable
 #endif
     }
 
-    public void Start(TimeSpan interval)
+    public virtual void Start(TimeSpan interval)
     {
         if (interval < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval));
 
@@ -64,7 +64,7 @@ class PortableTimer : IDisposable
         }
     }
 
-    async void OnTick()
+    protected async void OnTick()
     {
         try
         {

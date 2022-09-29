@@ -62,7 +62,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
     /// it will dispose this object if possible.</param>
     /// <param name="options">Options controlling behavior of the sink.</param>
     public PeriodicBatchingSink(IBatchedLogEventSink batchedSink, PeriodicBatchingSinkOptions options)
-        : this(options)
+        : this(options, new PortableTimerFactory())
     {
         _batchedLogEventSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
     }
@@ -83,7 +83,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             Period = period,
             EagerlyEmitFirstEvent = true,
             QueueLimit = null
-        })
+        }, new PortableTimerFactory())
     {
         _batchedLogEventSink = this;
     }
@@ -105,12 +105,19 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             Period = period,
             EagerlyEmitFirstEvent = true,
             QueueLimit = queueLimit == NoQueueLimit ? null : queueLimit
-        })
+        }, new PortableTimerFactory())
     {
         _batchedLogEventSink = this;
     }
 
-    PeriodicBatchingSink(PeriodicBatchingSinkOptions options)
+    // need to access a ctor with PortableTimerFactory injected in unit tests so that we can replace it with fake timers,
+    // but without exposing it to the external world => internal
+    internal PeriodicBatchingSink(IBatchedLogEventSink batchedSink, PeriodicBatchingSinkOptions options, PortableTimerFactory timerFactory): this(options, timerFactory) 
+    {
+        _batchedLogEventSink = batchedSink;
+    }
+
+    PeriodicBatchingSink(PeriodicBatchingSinkOptions options, PortableTimerFactory timerFactory)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
 
@@ -123,7 +130,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
         _queue = new(options.QueueLimit);
         _status = new(options.Period);
         _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
-        _timer = new(_ => OnTick());
+        _timer = timerFactory.CreateMainTimer(_ => OnTick());
 
         // Initialized by externally-callable constructors.
         _batchedLogEventSink = null!;
