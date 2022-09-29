@@ -1,7 +1,6 @@
 ﻿using Serilog.Sinks.PeriodicBatching.Tests.Support;
 using Xunit;
 using Serilog.Tests.Support;
-using System.Threading;
 
 namespace Serilog.Sinks.PeriodicBatching.Tests;
 
@@ -138,5 +137,49 @@ public class PeriodicBatchingSinkTests
         {
             pbs.Emit(evt);
         }
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringPeriodSmallerThanTheBatchingPeriodWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringPeriod = TinyWait.Subtract(MicroWait),
+        });
+        Assert.Throws<ArgumentOutOfRangeException>(constructWithWrongParameters);
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringPeriodToInfiniteWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringPeriod = Timeout.InfiniteTimeSpan,
+        });
+        Assert.Throws<ArgumentOutOfRangeException>(constructWithWrongParameters);
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringPeriodButNoCallbackWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringPeriod = TinyWait,
+        });
+        Assert.Throws<ArgumentNullException>(constructWithWrongParameters);
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringCallbackButNoPeriodWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringCallbackAsync = _ => Task.FromResult(0),
+        });
+        Assert.Throws<ArgumentNullException>(constructWithWrongParameters);
     }
 }

@@ -130,10 +130,12 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             throw new ArgumentOutOfRangeException(nameof(options), "The period must be greater than zero.");
         if (options.MonitoringPeriod.HasValue && options.MonitoringPeriod.Value < options.Period)
             throw new ArgumentOutOfRangeException(nameof(options), "The monitoring period should be greater or equal to the batch period.");
+        if (options.MonitoringPeriod.HasValue && options.MonitoringPeriod.Value == Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(options), "The monitoring period should not be infinite.");
         if (options.MonitoringPeriod.HasValue && options.MonitoringCallbackAsync is null)
-            throw new ArgumentOutOfRangeException(nameof(options), "The monitoring callback should not be null when the monitoring period has a value.");
+            throw new ArgumentNullException(nameof(options), "The monitoring callback should not be null when the monitoring period has a value.");
         if (!options.MonitoringPeriod.HasValue && options.MonitoringCallbackAsync is not null)
-            throw new ArgumentOutOfRangeException(nameof(options), "The monitoring period should not be null when the monitoring callback is defined.");
+            throw new ArgumentNullException(nameof(options), "The monitoring period should not be null when the monitoring callback is defined.");
 
         _batchSizeLimit = options.BatchSizeLimit;
         _queue = new(options.QueueLimit);
