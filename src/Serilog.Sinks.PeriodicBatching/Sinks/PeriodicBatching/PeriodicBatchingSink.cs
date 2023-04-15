@@ -23,12 +23,6 @@ namespace Serilog.Sinks.PeriodicBatching;
 /// <summary>
 /// Buffers log events into batches for background flushing.
 /// </summary>
-/// <remarks>
-/// To avoid unbounded memory growth, events are discarded after attempting
-/// to send a batch, regardless of whether the batch succeeded or not. Implementers
-/// that want to change this behavior need to either implement from scratch, or
-/// embed retry logic in the batch emitting functions.
-/// </remarks>
 public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEventSink
 #if FEATURE_ASYNCDISPOSABLE
         , IAsyncDisposable
