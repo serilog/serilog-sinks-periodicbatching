@@ -79,4 +79,107 @@ public class PeriodicBatchingSinkTests
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
     }
+
+    [Fact]
+    public void WhenTheQueueIsFilledQuickerThanItTakesToEmptyItShouldBeVisibleThroughTheMonitoringCallback()
+    {
+        var bs = new InMemoryBatchedSink(TinyWait); // Will really take TinyWait to process a batch
+        var monitoring = new Monitoring();
+        var batchSizeLimit = 2;
+        var opts = new PeriodicBatchingSinkOptions
+        {
+            BatchSizeLimit = batchSizeLimit,
+            EagerlyEmitFirstEvent = false,
+            Period = MicroWait, // Not used here as we trigger the tick manually
+            MonitoringPeriod = MicroWait, // same
+            MonitoringCallbackAsync = monitoring.MonitoringCallback,
+        };
+        var fakeTimers = new ManuallyTriggeredTimerFactory();
+        var pbs = new PeriodicBatchingSink(bs, opts, fakeTimers);
+
+        // Start filling the queue
+        FillQueueWithOneBatch(pbs, batchSizeLimit);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(2, monitoring.NumberOfEventsInTheQueue);
+
+        // Start emptying the queue, but it will take one TinyWait per batch
+        fakeTimers.StartProcessingLogEvents();
+        fakeTimers.CollectQueueState();
+        Assert.Equal(0, monitoring.NumberOfEventsInTheQueue);
+
+        // Filling the queue again, but quicker than the TinyWait => monitoring should show that it grows
+        FillQueueWithOneBatch(pbs, batchSizeLimit);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(2, monitoring.NumberOfEventsInTheQueue);
+        FillQueueWithOneBatch(pbs, batchSizeLimit);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(4, monitoring.NumberOfEventsInTheQueue);
+        FillQueueWithOneBatch(pbs, batchSizeLimit);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(6, monitoring.NumberOfEventsInTheQueue);
+
+        // Now let's wait the 3 TinyWait and observe the queue going down
+        Thread.Sleep(TinyWait);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(4, monitoring.NumberOfEventsInTheQueue);
+        Thread.Sleep(TinyWait);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(2, monitoring.NumberOfEventsInTheQueue);
+        Thread.Sleep(TinyWait);
+        fakeTimers.CollectQueueState();
+        Assert.Equal(0, monitoring.NumberOfEventsInTheQueue);
+    }
+
+    private void FillQueueWithOneBatch(PeriodicBatchingSink pbs, int batchSizeLimit)
+    {
+        var evt = Some.InformationEvent();
+        for (int i = 0; i < batchSizeLimit; i++)
+        {
+            pbs.Emit(evt);
+        }
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringPeriodSmallerThanTheBatchingPeriodWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringPeriod = TinyWait.Subtract(MicroWait),
+        });
+        Assert.Throws<ArgumentOutOfRangeException>(constructWithWrongParameters);
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringPeriodToInfiniteWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringPeriod = Timeout.InfiniteTimeSpan,
+        });
+        Assert.Throws<ArgumentOutOfRangeException>(constructWithWrongParameters);
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringPeriodButNoCallbackWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringPeriod = TinyWait,
+        });
+        Assert.Throws<ArgumentNullException>(constructWithWrongParameters);
+    }
+
+    [Fact]
+    public void WhenSettingAMonitoringCallbackButNoPeriodWillThrow()
+    {
+        var constructWithWrongParameters = () => new PeriodicBatchingSink(new InMemoryBatchedSink(MicroWait), new PeriodicBatchingSinkOptions
+        {
+            Period = TinyWait,
+            MonitoringCallbackAsync = _ => Task.FromResult(0),
+        });
+        Assert.Throws<ArgumentNullException>(constructWithWrongParameters);
+    }
 }

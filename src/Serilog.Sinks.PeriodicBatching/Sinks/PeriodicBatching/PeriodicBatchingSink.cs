@@ -37,6 +37,8 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
     readonly IBatchedLogEventSink _batchedLogEventSink;
     readonly int _batchSizeLimit;
     readonly bool _eagerlyEmitFirstEvent;
+    readonly TimeSpan? _monitoringPeriod;
+    readonly Func<int, Task>? _monitoringCallbackAsync;
     readonly BoundedConcurrentQueue<LogEvent> _queue;
     readonly BatchedConnectionStatus _status;
     readonly Queue<LogEvent> _waitingBatch = new();
@@ -44,6 +46,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
     readonly object _stateLock = new();
 
     readonly PortableTimer _timer;
+    readonly PortableTimer? _monitoringTimer;
 
     bool _unloading;
     bool _started;
@@ -56,7 +59,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
     /// it will dispose this object if possible.</param>
     /// <param name="options">Options controlling behavior of the sink.</param>
     public PeriodicBatchingSink(IBatchedLogEventSink batchedSink, PeriodicBatchingSinkOptions options)
-        : this(options)
+        : this(options, new PortableTimerFactory())
     {
         _batchedLogEventSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
     }
@@ -77,7 +80,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             Period = period,
             EagerlyEmitFirstEvent = true,
             QueueLimit = null
-        })
+        }, new PortableTimerFactory())
     {
         _batchedLogEventSink = this;
     }
@@ -99,12 +102,19 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             Period = period,
             EagerlyEmitFirstEvent = true,
             QueueLimit = queueLimit == NoQueueLimit ? null : queueLimit
-        })
+        }, new PortableTimerFactory())
     {
         _batchedLogEventSink = this;
     }
 
-    PeriodicBatchingSink(PeriodicBatchingSinkOptions options)
+    // need to access a ctor with PortableTimerFactory injected in unit tests so that we can replace it with fake timers,
+    // but without exposing it to the external world => internal
+    internal PeriodicBatchingSink(IBatchedLogEventSink batchedSink, PeriodicBatchingSinkOptions options, PortableTimerFactory timerFactory): this(options, timerFactory) 
+    {
+        _batchedLogEventSink = batchedSink;
+    }
+
+    PeriodicBatchingSink(PeriodicBatchingSinkOptions options, PortableTimerFactory timerFactory)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
 
@@ -112,12 +122,28 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             throw new ArgumentOutOfRangeException(nameof(options), "The batch size limit must be greater than zero.");
         if (options.Period <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(options), "The period must be greater than zero.");
+        if (options.MonitoringPeriod.HasValue && options.MonitoringPeriod.Value < options.Period)
+            throw new ArgumentOutOfRangeException(nameof(options), "The monitoring period should be greater or equal to the batch period.");
+        if (options.MonitoringPeriod.HasValue && options.MonitoringPeriod.Value == Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(options), "The monitoring period should not be infinite.");
+        if (options.MonitoringPeriod.HasValue && options.MonitoringCallbackAsync is null)
+            throw new ArgumentNullException(nameof(options), "The monitoring callback should not be null when the monitoring period has a value.");
+        if (!options.MonitoringPeriod.HasValue && options.MonitoringCallbackAsync is not null)
+            throw new ArgumentNullException(nameof(options), "The monitoring period should not be null when the monitoring callback is defined.");
 
         _batchSizeLimit = options.BatchSizeLimit;
         _queue = new(options.QueueLimit);
         _status = new(options.Period);
         _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
-        _timer = new(_ => OnTick());
+        _timer = timerFactory.CreateMainTimer(_ => OnTick());
+
+        _monitoringPeriod = options.MonitoringPeriod;
+        _monitoringCallbackAsync = options.MonitoringCallbackAsync;
+        if (options.MonitoringPeriod.HasValue)
+        {
+            _monitoringTimer = timerFactory.CreateMonitoringTimer(_ => OnMonitoringTick());
+            _monitoringTimer.Start(options.MonitoringPeriod.Value);
+        }
 
         // Initialized by externally-callable constructors.
         _batchedLogEventSink = null!;
@@ -151,6 +177,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
         }
 
         _timer.Dispose();
+        _monitoringTimer?.Dispose();
 
         // This is the place where SynchronizationContext.Current is unknown and can be != null
         // so we prevent possible deadlocks here for sync-over-async downstream implementations.
@@ -172,6 +199,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             }
 
             _timer.Dispose();
+            _monitoringTimer?.Dispose();
 
             await OnTick().ConfigureAwait(false);
 
@@ -263,6 +291,28 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
             {
                 if (!_unloading)
                     SetTimer(_status.NextInterval);
+            }
+        }
+    }
+
+    async Task OnMonitoringTick()
+    {
+        try
+        {
+            if (_monitoringCallbackAsync != null)
+            {
+                await _monitoringCallbackAsync.Invoke(_queue.Count).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            SelfLog.WriteLine("Exception while executing the monitoring callback from {0}: {1}", this, ex);
+        }
+        finally
+        {
+            if (_monitoringPeriod.HasValue)
+            {
+                _monitoringTimer?.Start(_monitoringPeriod.Value);
             }
         }
     }

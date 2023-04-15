@@ -41,4 +41,16 @@ public class PeriodicBatchingSinkOptions
     /// for an unbounded queue. The default is <c>100000</c>.
     /// </summary>
     public int? QueueLimit { get; set; } = 100000;
+
+    /// <summary>
+    /// The time to wait between two <see cref="MonitoringCallbackAsync"/> trigger.
+    /// The default is <c>null</c>.
+    /// </summary>
+    public TimeSpan? MonitoringPeriod { get; set; } = null;
+
+    /// <summary>
+    /// Callback called every <see cref="MonitoringPeriod"/> with the number of events hold in the queue as parameter.
+    /// The default is <c>null</c>.
+    /// </summary>
+    public Func<int, Task>? MonitoringCallbackAsync { get; set; } = null;
 }
