@@ -22,10 +22,7 @@ class PortableTimer : IDisposable
 
     readonly Func<CancellationToken, Task> _onTick;
     readonly CancellationTokenSource _cancel = new();
-
-#if FEATURE_THREADING_TIMER
     readonly Timer _timer;
-#endif
 
     bool _running;
     bool _disposed;
@@ -34,12 +31,8 @@ class PortableTimer : IDisposable
     {
         _onTick = onTick ?? throw new ArgumentNullException(nameof(onTick));
 
-#if FEATURE_THREADING_TIMER
-#if FEATURE_EXECUTION_CONTEXT
         using (ExecutionContext.SuppressFlow())
-#endif
             _timer = new(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
-#endif
     }
 
     public void Start(TimeSpan interval)
@@ -51,16 +44,7 @@ class PortableTimer : IDisposable
             if (_disposed)
                 throw new ObjectDisposedException(nameof(PortableTimer));
 
-#if FEATURE_THREADING_TIMER
             _timer.Change(interval, Timeout.InfiniteTimeSpan);
-#else
-                Task.Delay(interval, _cancel.Token)
-                    .ContinueWith(
-                        _ => OnTick(),
-                        CancellationToken.None,
-                        TaskContinuationOptions.DenyChildAttach,
-                        TaskScheduler.Default);
-#endif
         }
     }
 
@@ -126,10 +110,7 @@ class PortableTimer : IDisposable
                 Monitor.Wait(_stateLock);
             }
 
-#if FEATURE_THREADING_TIMER
             _timer.Dispose();
-#endif
-
             _disposed = true;
         }
     }

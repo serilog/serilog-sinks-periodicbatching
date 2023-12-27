@@ -1,4 +1,6 @@
-﻿namespace Serilog.Sinks.PeriodicBatching.PerformanceTests.Support;
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace Serilog.Sinks.PeriodicBatching.PerformanceTests.Support;
 
 class SynchronizedQueue<T> : Queue<T>
 {
@@ -16,9 +18,9 @@ class SynchronizedQueue<T> : Queue<T>
         _queueLimit = queueLimit;
     }
 
-    public bool TryDequeue(out T? item)
+    public new bool TryDequeue(out T item)
     {
-        item = default;
+        item = default!;
 
         lock (this)
         {
