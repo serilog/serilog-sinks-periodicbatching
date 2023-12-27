@@ -17,8 +17,8 @@ public class PeriodicBatchingSinkTests
         var evt = Some.InformationEvent();
         pbs.Emit(evt);
         pbs.Dispose();
-        Assert.Equal(1, bs.Batches.Count);
-        Assert.Equal(1, bs.Batches[0].Count);
+        Assert.Single(bs.Batches);
+        Assert.Single(bs.Batches[0]);
         Assert.Same(evt, bs.Batches[0][0]);
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
@@ -61,7 +61,7 @@ public class PeriodicBatchingSinkTests
         Thread.Sleep(TinyWait + TinyWait);
         bs.Stop();
         pbs.Dispose();
-        Assert.Equal(1, bs.Batches.Count);
+        Assert.Single(bs.Batches);
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
     }
@@ -75,7 +75,7 @@ public class PeriodicBatchingSinkTests
         pbs.Emit(evt);
         Thread.Sleep(TinyWait);
         pbs.Dispose();
-        Assert.Equal(1, bs.Batches.Count);
+        Assert.Single(bs.Batches);
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
     }

@@ -25,11 +25,6 @@ namespace Serilog.Sinks.PeriodicBatching;
 /// also overproduction (the second, queue-dropping response). In combination these should provide a
 /// reasonable delivery effort but ultimately protect the sender from memory exhaustion.
 /// </summary>
-/// <remarks>
-/// Currently used only by <see cref="PeriodicBatchingSink"/>, but may
-/// provide the basis for a "smart" exponential backoff timer. There are other factors to consider
-/// including the desire to send batches "when full" rather than continuing to buffer, and so-on.
-/// </remarks>
 class BatchedConnectionStatus
 {
     static readonly TimeSpan MinimumBackoffPeriod = TimeSpan.FromSeconds(5);
