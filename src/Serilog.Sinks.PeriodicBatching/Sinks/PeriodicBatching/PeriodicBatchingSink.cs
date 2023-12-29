@@ -175,7 +175,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 }
             } while ((_waitingBatch.Count < _batchSizeLimit || _waitingBatch.Count > 0 && isEagerBatch) &&
                      !_unloading.IsCancellationRequested &&
-                     await TryWaitToReadAsync(_queue.Reader, fillBatch, _unloading.Token));
+                     await TryWaitToReadAsync(_queue.Reader, fillBatch, _unloading.Token).ConfigureAwait(false));
 
             try
             {
@@ -210,7 +210,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 // Wait out the remainder of the batch fill time so that we don't overwhelm the server. With each
                 // successive failure the interval will increase. Needs special handling so that we don't need to
                 // make `fillBatch` cancellable (and thus fallible).
-                await Task.WhenAny(fillBatch, _delayUntilUnload);
+                await Task.WhenAny(fillBatch, _delayUntilUnload).ConfigureAwait(false);
             }
         }
         while (!_unloading.IsCancellationRequested);
@@ -250,7 +250,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
     // Wait until `reader` has items to read. Returns `false` if the `timeout` task completes, or if the reader is cancelled.
     async Task<bool> TryWaitToReadAsync(ChannelReader<LogEvent> reader, Task timeout, CancellationToken cancellationToken)
     {
-        var completed = await Task.WhenAny(timeout, reader.WaitToReadAsync(cancellationToken).AsTask());
+        var completed = await Task.WhenAny(timeout, reader.WaitToReadAsync(cancellationToken).AsTask()).ConfigureAwait(false);
 
         // Avoid unobserved task exceptions in the cancellation and failure cases. Note that we may not end up observing
         // read task cancellation exceptions during shutdown, may be some room to improve.
