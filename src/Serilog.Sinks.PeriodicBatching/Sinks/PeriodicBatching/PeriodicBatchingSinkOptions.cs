@@ -32,7 +32,7 @@ public class PeriodicBatchingSinkOptions
     public int BatchSizeLimit { get; set; } = 1000;
 
     /// <summary>
-    /// The time to wait between checking for event batches. The default is two seconds.
+    /// The maximum buffering delay between event batches. The default is two seconds.
     /// </summary>
     public TimeSpan Period { get; set; } = TimeSpan.FromSeconds(2);
 

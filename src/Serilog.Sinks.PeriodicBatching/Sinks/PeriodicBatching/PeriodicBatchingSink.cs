@@ -161,8 +161,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         var isEagerBatch = _eagerlyEmitFirstEvent;
         do
         {
-            using var fillBatch = Task.Delay(_status.NextInterval, _unloading.Token);
-
+            var fillBatch = Task.Delay(_status.NextInterval);
             do
             {
                 while (_waitingBatch.Count < _batchSizeLimit &&
@@ -246,7 +245,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         var completed = await Task.WhenAny(timeout, reader.WaitToReadAsync(cancellationToken).AsTask());
 
         // Avoid unobserved task exceptions in the cancellation and failure cases. Note that we may not end up observing
-        // both the timeout and read task cancellation exceptions during shutdown, may be some room to improve.
+        // read task cancellation exceptions during shutdown, may be some room to improve.
         if (completed is { Exception: not null, IsCanceled: false })
         {
             SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) could not read from queue: {completed.Exception}");
