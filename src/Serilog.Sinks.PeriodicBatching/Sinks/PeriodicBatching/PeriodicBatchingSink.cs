@@ -48,6 +48,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
     readonly bool _eagerlyEmitFirstEvent;
     readonly BatchedConnectionStatus _status;
     readonly Queue<LogEvent> _waitingBatch = new();
+    readonly Task _delayUntilUnload;
 
     /// <summary>
     /// Construct a <see cref="PeriodicBatchingSink"/>.
@@ -71,6 +72,8 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             : Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions { SingleReader = true });
         _status = new BatchedConnectionStatus(options.Period);
         _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
+        _delayUntilUnload = Task.Delay(Timeout.InfiniteTimeSpan, _unloading.Token)
+            .ContinueWith(e => e.Exception, TaskContinuationOptions.OnlyOnFaulted);
 
         _loop = Task.Run(LoopAsync, _unloading.Token);
     }
@@ -203,6 +206,11 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                     // for extended periods. May be worth reviewing and possibly abandoning this.
                     while (_queue.Reader.TryRead(out _) && !_unloading.IsCancellationRequested) { }
                 }
+
+                // Wait out the remainder of the batch fill time so that we don't overwhelm the server. With each
+                // successive failure the interval will increase. Needs special handling so that we don't need to
+                // make `fillBatch` cancellable (and thus fallible).
+                await Task.WhenAny(fillBatch, _delayUntilUnload);
             }
         }
         while (!_unloading.IsCancellationRequested);
@@ -238,7 +246,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) failed emitting a batch during shutdown; dropping remaining queued events: {ex}");
         }
     }
-
+    
     // Wait until `reader` has items to read. Returns `false` if the `timeout` task completes, or if the reader is cancelled.
     async Task<bool> TryWaitToReadAsync(ChannelReader<LogEvent> reader, Task timeout, CancellationToken cancellationToken)
     {
