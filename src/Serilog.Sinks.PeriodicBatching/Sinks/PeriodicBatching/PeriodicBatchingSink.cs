@@ -99,10 +99,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         _queue.Writer.TryWrite(logEvent);
     }
     
-    /// <summary>
-    /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
-    /// </summary>
-    /// <filterpriority>2</filterpriority>
+    /// <inheritdoc/>
     public void Dispose()
     {
         try
