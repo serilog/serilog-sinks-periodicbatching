@@ -38,17 +38,17 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
     readonly object _stateLock = new();
     // Needed because the read loop needs to observe shutdown even when the target batched (remote) sink is
     // unable to accept events (preventing the queue from being drained and completion being observed).
-    readonly CancellationTokenSource _unloading = new();
+    readonly CancellationTokenSource _shutdownSignal = new();
     // The write side can wait on this to ensure shutdown has completed.
-    readonly Task _loop;
+    readonly Task _runLoop;
     
     // Used only by the read side.
-    readonly IBatchedLogEventSink _batchedLogEventSink;
+    readonly IBatchedLogEventSink _targetSink;
     readonly int _batchSizeLimit;
     readonly bool _eagerlyEmitFirstEvent;
-    readonly BatchedConnectionStatus _status;
-    readonly Queue<LogEvent> _waitingBatch = new();
-    readonly Task _delayUntilUnload;
+    readonly FailureAwareBatchScheduler _batchScheduler;
+    readonly Queue<LogEvent> _currentBatch = new();
+    readonly Task _waitForShutdownSignal;
 
     /// <summary>
     /// Construct a <see cref="PeriodicBatchingSink"/>.
@@ -65,17 +65,17 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         if (options.Period <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(options), "The period must be greater than zero.");
 
-        _batchedLogEventSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
+        _targetSink = batchedSink ?? throw new ArgumentNullException(nameof(batchedSink));
         _batchSizeLimit = options.BatchSizeLimit;
         _queue = options.QueueLimit is { } limit
             ? Channel.CreateBounded<LogEvent>(new BoundedChannelOptions(limit) { SingleReader = true })
             : Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions { SingleReader = true });
-        _status = new BatchedConnectionStatus(options.Period);
+        _batchScheduler = new FailureAwareBatchScheduler(options.Period);
         _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
-        _delayUntilUnload = Task.Delay(Timeout.InfiniteTimeSpan, _unloading.Token)
+        _waitForShutdownSignal = Task.Delay(Timeout.InfiniteTimeSpan, _shutdownSignal.Token)
             .ContinueWith(e => e.Exception, TaskContinuationOptions.OnlyOnFaulted);
 
-        _loop = Task.Run(LoopAsync, _unloading.Token);
+        _runLoop = Task.Run(LoopAsync, _shutdownSignal.Token);
     }
 
     /// <summary>
@@ -93,7 +93,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
     {
         if (logEvent == null) throw new ArgumentNullException(nameof(logEvent));
 
-        if (_unloading.IsCancellationRequested)
+        if (_shutdownSignal.IsCancellationRequested)
             return;
 
         _queue.Writer.TryWrite(logEvent);
@@ -109,23 +109,23 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         {
             lock (_stateLock)
             {
-                if (!_unloading.IsCancellationRequested)
+                if (!_shutdownSignal.IsCancellationRequested)
                 {
                     _queue.Writer.Complete();
-                    _unloading.Cancel();
+                    _shutdownSignal.Cancel();
                 }
             }
 
-            _loop.Wait();
+            _runLoop.Wait();
         }
         catch (Exception ex)
         {
             // E.g. the task was canceled before ever being run, or internally failed and threw
             // an unexpected exception.
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) caught exception during disposal: {ex}");
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) caught exception during disposal: {ex}");
         }
 
-        (_batchedLogEventSink as IDisposable)?.Dispose();
+        (_targetSink as IDisposable)?.Dispose();
     }
 
 #if FEATURE_ASYNCDISPOSABLE
@@ -136,26 +136,26 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             {
                 lock (_stateLock)
                 {
-                    if (!_unloading.IsCancellationRequested)
+                    if (!_shutdownSignal.IsCancellationRequested)
                     {
                         _queue.Writer.Complete();
-                        _unloading.Cancel();
+                        _shutdownSignal.Cancel();
                     }
                 }
 
-                await _loop.ConfigureAwait(false);
+                await _runLoop.ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 // E.g. the task was canceled before ever being run, or internally failed and threw
                 // an unexpected exception.
-                SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}): caught exception during async disposal: {ex}");
+                SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}): caught exception during async disposal: {ex}");
             }
 
-            if (_batchedLogEventSink is IAsyncDisposable asyncDisposable)
+            if (_targetSink is IAsyncDisposable asyncDisposable)
                 await asyncDisposable.DisposeAsync().ConfigureAwait(false);
             else
-                (_batchedLogEventSink as IDisposable)?.Dispose();
+                (_targetSink as IDisposable)?.Dispose();
         }
 #endif
 
@@ -164,56 +164,56 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         var isEagerBatch = _eagerlyEmitFirstEvent;
         do
         {
-            var fillBatch = Task.Delay(_status.NextInterval);
+            var fillBatch = Task.Delay(_batchScheduler.NextInterval);
             do
             {
-                while (_waitingBatch.Count < _batchSizeLimit &&
-                       !_unloading.IsCancellationRequested &&
+                while (_currentBatch.Count < _batchSizeLimit &&
+                       !_shutdownSignal.IsCancellationRequested &&
                        _queue.Reader.TryRead(out var next))
                 {
-                    _waitingBatch.Enqueue(next);
+                    _currentBatch.Enqueue(next);
                 }
-            } while ((_waitingBatch.Count < _batchSizeLimit || _waitingBatch.Count > 0 && isEagerBatch) &&
-                     !_unloading.IsCancellationRequested &&
-                     await TryWaitToReadAsync(_queue.Reader, fillBatch, _unloading.Token).ConfigureAwait(false));
+            } while ((_currentBatch.Count < _batchSizeLimit || _currentBatch.Count > 0 && isEagerBatch) &&
+                     !_shutdownSignal.IsCancellationRequested &&
+                     await TryWaitToReadAsync(_queue.Reader, fillBatch, _shutdownSignal.Token).ConfigureAwait(false));
 
             try
             {
-                if (_waitingBatch.Count == 0)
+                if (_currentBatch.Count == 0)
                 {
-                    await _batchedLogEventSink.OnEmptyBatchAsync().ConfigureAwait(false);
+                    await _targetSink.OnEmptyBatchAsync().ConfigureAwait(false);
                 }
                 else
                 {
                     isEagerBatch = false;
-                    await _batchedLogEventSink.EmitBatchAsync(_waitingBatch).ConfigureAwait(false);
+                    await _targetSink.EmitBatchAsync(_currentBatch).ConfigureAwait(false);
                 }
 
-                _waitingBatch.Clear();
-                _status.MarkSuccess();
+                _currentBatch.Clear();
+                _batchScheduler.MarkSuccess();
             }
             catch (Exception ex)
             {
-                SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) failed emitting a batch: {ex}");
-                _status.MarkFailure();
+                SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) failed emitting a batch: {ex}");
+                _batchScheduler.MarkFailure();
                 
-                if (_status.ShouldDropBatch)
-                    _waitingBatch.Clear();
+                if (_batchScheduler.ShouldDropBatch)
+                    _currentBatch.Clear();
 
-                if (_status.ShouldDropQueue)
+                if (_batchScheduler.ShouldDropQueue)
                 {
                     // This is not ideal; the goal is to reduce memory pressure on the client if the server is offline
                     // for extended periods. May be worth reviewing and possibly abandoning this.
-                    while (_queue.Reader.TryRead(out _) && !_unloading.IsCancellationRequested) { }
+                    while (_queue.Reader.TryRead(out _) && !_shutdownSignal.IsCancellationRequested) { }
                 }
 
                 // Wait out the remainder of the batch fill time so that we don't overwhelm the server. With each
                 // successive failure the interval will increase. Needs special handling so that we don't need to
                 // make `fillBatch` cancellable (and thus fallible).
-                await Task.WhenAny(fillBatch, _delayUntilUnload).ConfigureAwait(false);
+                await Task.WhenAny(fillBatch, _waitForShutdownSignal).ConfigureAwait(false);
             }
         }
-        while (!_unloading.IsCancellationRequested);
+        while (!_shutdownSignal.IsCancellationRequested);
         
         // At this point:
         //  - The sink is being disposed
@@ -228,22 +228,22 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         {
             while (_queue.Reader.TryPeek(out _))
             {
-                while (_waitingBatch.Count < _batchSizeLimit &&
+                while (_currentBatch.Count < _batchSizeLimit &&
                        _queue.Reader.TryRead(out var next))
                 {
-                    _waitingBatch.Enqueue(next);
+                    _currentBatch.Enqueue(next);
                 }
 
-                if (_waitingBatch.Count != 0)
+                if (_currentBatch.Count != 0)
                 {
-                    await _batchedLogEventSink.EmitBatchAsync(_waitingBatch).ConfigureAwait(false);
-                    _waitingBatch.Clear();
+                    await _targetSink.EmitBatchAsync(_currentBatch).ConfigureAwait(false);
+                    _currentBatch.Clear();
                 }
             }
         }
         catch (Exception ex)
         {
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) failed emitting a batch during shutdown; dropping remaining queued events: {ex}");
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) failed emitting a batch during shutdown; dropping remaining queued events: {ex}");
         }
     }
     
@@ -256,7 +256,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         // read task cancellation exceptions during shutdown, may be some room to improve.
         if (completed is { Exception: not null, IsCanceled: false })
         {
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) could not read from queue: {completed.Exception}");
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) could not read from queue: {completed.Exception}");
         }
             
         // `Task.IsCompletedSuccessfully` not available in .NET Standard 2.0/Framework.

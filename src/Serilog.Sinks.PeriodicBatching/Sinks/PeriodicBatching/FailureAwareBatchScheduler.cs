@@ -25,7 +25,7 @@ namespace Serilog.Sinks.PeriodicBatching;
 /// also overproduction (the second, queue-dropping response). In combination these should provide a
 /// reasonable delivery effort but ultimately protect the sender from memory exhaustion.
 /// </summary>
-class BatchedConnectionStatus
+class FailureAwareBatchScheduler
 {
     static readonly TimeSpan MinimumBackoffPeriod = TimeSpan.FromSeconds(5);
     static readonly TimeSpan MaximumBackoffInterval = TimeSpan.FromMinutes(10);
@@ -37,9 +37,10 @@ class BatchedConnectionStatus
 
     int _failuresSinceSuccessfulBatch;
 
-    public BatchedConnectionStatus(TimeSpan period)
+    public FailureAwareBatchScheduler(TimeSpan period)
     {
-        if (period < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(period), "The batching period must be a positive timespan");
+        if (period < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(period), "The batching period must be a positive timespan.");
 
         _period = period;
     }

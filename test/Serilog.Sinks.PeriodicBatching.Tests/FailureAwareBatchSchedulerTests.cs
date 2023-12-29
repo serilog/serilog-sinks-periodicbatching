@@ -3,21 +3,21 @@ using Xunit;
 
 namespace Serilog.Sinks.PeriodicBatching.Tests;
 
-public class BatchedConnectionStatusTests
+public class FailureAwareBatchSchedulerTests
 {
     readonly TimeSpan _defaultPeriod = TimeSpan.FromSeconds(2);
 
     [Fact]
     public void WhenNoFailuresHaveOccurredTheRegularIntervalIsUsed()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         Assert.Equal(_defaultPeriod, bcs.NextInterval);
     }
 
     [Fact]
     public void WhenOneFailureHasOccurredTheRegularIntervalIsUsed()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         bcs.MarkFailure();
         Assert.Equal(_defaultPeriod, bcs.NextInterval);
     }
@@ -25,7 +25,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void WhenTwoFailuresHaveOccurredTheIntervalBacksOff()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         bcs.MarkFailure();
         bcs.MarkFailure();
         Assert.Equal(TimeSpan.FromSeconds(10), bcs.NextInterval);
@@ -34,7 +34,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void WhenABatchSucceedsTheStatusResets()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         bcs.MarkFailure();
         bcs.MarkFailure();
         bcs.MarkSuccess();
@@ -44,7 +44,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void WhenThreeFailuresHaveOccurredTheIntervalBacksOff()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         bcs.MarkFailure();
         bcs.MarkFailure();
         bcs.MarkFailure();
@@ -55,7 +55,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void When8FailuresHaveOccurredTheIntervalBacksOffAndBatchIsDropped()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         for (var i = 0; i < 8; ++i)
         {
             Assert.False(bcs.ShouldDropBatch);
@@ -69,7 +69,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void When10FailuresHaveOccurredTheQueueIsDropped()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         for (var i = 0; i < 10; ++i)
         {
             Assert.False(bcs.ShouldDropQueue);
@@ -81,7 +81,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void AtTheDefaultIntervalRetriesFor10MinutesBeforeDroppingBatch()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         var cumulative = TimeSpan.Zero;
         do
         {
@@ -98,7 +98,7 @@ public class BatchedConnectionStatusTests
     [Fact]
     public void AtTheDefaultIntervalRetriesFor30MinutesBeforeDroppingQueue()
     {
-        var bcs = new BatchedConnectionStatus(_defaultPeriod);
+        var bcs = new FailureAwareBatchScheduler(_defaultPeriod);
         var cumulative = TimeSpan.Zero;
         do
         {
