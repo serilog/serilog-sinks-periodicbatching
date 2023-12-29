@@ -32,12 +32,17 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
     // Buffers events from the write- to the read side.
     readonly Channel<LogEvent> _queue;
 
-    // Used by the write side to signal shutdown.
+    // These fields are used by the write side to signal shutdown.
+    // A mutex is required because the queue writer `Complete()` call is not idempotent and will throw if
+    // called multiple times, e.g. via multiple `Dispose()` calls on this sink.
     readonly object _stateLock = new();
+    // Needed because the read loop needs to observe shutdown even when the target batched (remote) sink is
+    // unable to accept events (preventing the queue from being drained and completion being observed).
     readonly CancellationTokenSource _unloading = new();
+    // The write side can wait on this to ensure shutdown has completed.
     readonly Task _loop;
     
-    // Used only by the read side
+    // Used only by the read side.
     readonly IBatchedLogEventSink _batchedLogEventSink;
     readonly int _batchSizeLimit;
     readonly bool _eagerlyEmitFirstEvent;
@@ -67,32 +72,37 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         _status = new BatchedConnectionStatus(options.Period);
         _eagerlyEmitFirstEvent = options.EagerlyEmitFirstEvent;
 
-        _loop = Task.Factory.StartNew(LoopAsync, _unloading.Token, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+        _loop = Task.Run(LoopAsync, _unloading.Token);
     }
 
+    /// <summary>
+    /// Emit the provided log event to the sink. If the sink is being disposed or
+    /// the app domain unloaded, then the event is ignored.
+    /// </summary>
+    /// <param name="logEvent">Log event to emit.</param>
+    /// <exception cref="ArgumentNullException">The event is null.</exception>
+    /// <remarks>
+    /// The sink implements the contract that any events whose Emit() method has
+    /// completed at the time of sink disposal will be flushed (or attempted to,
+    /// depending on app domain state).
+    /// </remarks>
+    public void Emit(LogEvent logEvent)
+    {
+        if (logEvent == null) throw new ArgumentNullException(nameof(logEvent));
+
+        if (_unloading.IsCancellationRequested)
+            return;
+
+        _queue.Writer.TryWrite(logEvent);
+    }
+    
     /// <summary>
     /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
     /// </summary>
     /// <filterpriority>2</filterpriority>
     public void Dispose()
     {
-        lock (_stateLock)
-        {
-            if (!_unloading.IsCancellationRequested)
-            {
-                _queue.Writer.Complete();
-                _unloading.Cancel();
-            }
-        }
-
-        _loop.Wait();
-
-        (_batchedLogEventSink as IDisposable)?.Dispose();
-    }
-
-#if FEATURE_ASYNCDISPOSABLE
-        /// <inheritdoc/>
-        public async ValueTask DisposeAsync()
+        try
         {
             lock (_stateLock)
             {
@@ -103,7 +113,41 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 }
             }
 
-            await _loop.ConfigureAwait(false);
+            _loop.Wait();
+        }
+        catch (Exception ex)
+        {
+            // E.g. the task was canceled before ever being run, or internally failed and threw
+            // an unexpected exception.
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) caught exception during disposal: {ex}");
+        }
+
+        (_batchedLogEventSink as IDisposable)?.Dispose();
+    }
+
+#if FEATURE_ASYNCDISPOSABLE
+        /// <inheritdoc/>
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                lock (_stateLock)
+                {
+                    if (!_unloading.IsCancellationRequested)
+                    {
+                        _queue.Writer.Complete();
+                        _unloading.Cancel();
+                    }
+                }
+
+                await _loop.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // E.g. the task was canceled before ever being run, or internally failed and threw
+                // an unexpected exception.
+                SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}): caught exception during async disposal: {ex}");
+            }
 
             if (_batchedLogEventSink is IAsyncDisposable asyncDisposable)
                 await asyncDisposable.DisposeAsync().ConfigureAwait(false);
@@ -129,7 +173,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 }
             } while ((_waitingBatch.Count < _batchSizeLimit || _waitingBatch.Count > 0 && isEagerBatch) &&
                      !_unloading.IsCancellationRequested &&
-                     await Task.WhenAny(fillBatch, _queue.Reader.WaitToReadAsync(_unloading.Token).AsTask()) != fillBatch);
+                     await TryWaitToReadAsync(_queue.Reader, fillBatch, _unloading.Token));
 
             try
             {
@@ -148,45 +192,67 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             }
             catch (Exception ex)
             {
-                SelfLog.WriteLine("Exception while emitting periodic batch from {0}: {1}", this, ex);
+                SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) failed emitting a batch: {ex}");
                 _status.MarkFailure();
-            }
-            finally
-            {
+                
                 if (_status.ShouldDropBatch)
                     _waitingBatch.Clear();
 
                 if (_status.ShouldDropQueue)
                 {
-                    // This is not ideal; the goal is to reduce memory pressure on the client if
-                    // the server is offline for extended periods. May be worth reviewing and abandoning
-                    // this.
+                    // This is not ideal; the goal is to reduce memory pressure on the client if the server is offline
+                    // for extended periods. May be worth reviewing and possibly abandoning this.
                     while (_queue.Reader.TryRead(out _) && !_unloading.IsCancellationRequested) { }
                 }
             }
         }
         while (!_unloading.IsCancellationRequested);
+        
+        // At this point:
+        //  - The sink is being disposed
+        //  - The queue has been completed
+        //  - The queue may or may not be empty
+        //  - The waiting batch may or may not be empty
+        //  - The target sink may or may not be accepting events
+        
+        // Try flushing the rest of the queue, but bail out on any failure. Shutdown time is unbounded, but it
+        // doesn't make sense to pick an arbitrary limit - a future version might add a new option to control this.
+        try
+        {
+            while (_queue.Reader.TryPeek(out _))
+            {
+                while (_waitingBatch.Count < _batchSizeLimit &&
+                       _queue.Reader.TryRead(out var next))
+                {
+                    _waitingBatch.Enqueue(next);
+                }
+
+                if (_waitingBatch.Count != 0)
+                {
+                    await _batchedLogEventSink.EmitBatchAsync(_waitingBatch).ConfigureAwait(false);
+                    _waitingBatch.Clear();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) failed emitting a batch during shutdown; dropping remaining queued events: {ex}");
+        }
     }
 
-
-    /// <summary>
-    /// Emit the provided log event to the sink. If the sink is being disposed or
-    /// the app domain unloaded, then the event is ignored.
-    /// </summary>
-    /// <param name="logEvent">Log event to emit.</param>
-    /// <exception cref="ArgumentNullException">The event is null.</exception>
-    /// <remarks>
-    /// The sink implements the contract that any events whose Emit() method has
-    /// completed at the time of sink disposal will be flushed (or attempted to,
-    /// depending on app domain state).
-    /// </remarks>
-    public void Emit(LogEvent logEvent)
+    // Wait until `reader` has items to read. Returns `false` if the `timeout` task completes, or if the reader is cancelled.
+    async Task<bool> TryWaitToReadAsync(ChannelReader<LogEvent> reader, Task timeout, CancellationToken cancellationToken)
     {
-        if (logEvent == null) throw new ArgumentNullException(nameof(logEvent));
+        var completed = await Task.WhenAny(timeout, reader.WaitToReadAsync(cancellationToken).AsTask());
 
-        if (_unloading.IsCancellationRequested)
-            return;
-
-        _queue.Writer.TryWrite(logEvent);
+        // Avoid unobserved task exceptions in the cancellation and failure cases. Note that we may not end up observing
+        // both the timeout and read task cancellation exceptions during shutdown, may be some room to improve.
+        if (completed is { Exception: not null, IsCanceled: false })
+        {
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_batchedLogEventSink}) could not read from queue: {completed.Exception}");
+        }
+            
+        // `Task.IsCompletedSuccessfully` not available in .NET Standard 2.0/Framework.
+        return completed != timeout && completed is { IsCompleted: true, IsCanceled: false, IsFaulted: false };
     }
 }
