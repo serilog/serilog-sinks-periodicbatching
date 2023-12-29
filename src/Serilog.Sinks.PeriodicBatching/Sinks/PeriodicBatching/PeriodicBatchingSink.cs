@@ -75,7 +75,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         _waitForShutdownSignal = Task.Delay(Timeout.InfiniteTimeSpan, _shutdownSignal.Token)
             .ContinueWith(e => e.Exception, TaskContinuationOptions.OnlyOnFaulted);
 
-        _runLoop = Task.Run(LoopAsync, _shutdownSignal.Token);
+        _runLoop = Task.Run(LoopAsync);
     }
 
     /// <summary>
