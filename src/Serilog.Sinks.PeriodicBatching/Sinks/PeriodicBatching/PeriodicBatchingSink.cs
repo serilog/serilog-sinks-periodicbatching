@@ -98,63 +98,6 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
 
         _queue.Writer.TryWrite(logEvent);
     }
-    
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        try
-        {
-            lock (_stateLock)
-            {
-                if (!_shutdownSignal.IsCancellationRequested)
-                {
-                    _queue.Writer.Complete();
-                    _shutdownSignal.Cancel();
-                }
-            }
-
-            _runLoop.Wait();
-        }
-        catch (Exception ex)
-        {
-            // E.g. the task was canceled before ever being run, or internally failed and threw
-            // an unexpected exception.
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) caught exception during disposal: {ex}");
-        }
-
-        (_targetSink as IDisposable)?.Dispose();
-    }
-
-#if FEATURE_ASYNCDISPOSABLE
-        /// <inheritdoc/>
-        public async ValueTask DisposeAsync()
-        {
-            try
-            {
-                lock (_stateLock)
-                {
-                    if (!_shutdownSignal.IsCancellationRequested)
-                    {
-                        _queue.Writer.Complete();
-                        _shutdownSignal.Cancel();
-                    }
-                }
-
-                await _runLoop.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // E.g. the task was canceled before ever being run, or internally failed and threw
-                // an unexpected exception.
-                SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}): caught exception during async disposal: {ex}");
-            }
-
-            if (_targetSink is IAsyncDisposable asyncDisposable)
-                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-            else
-                (_targetSink as IDisposable)?.Dispose();
-        }
-#endif
 
     async Task LoopAsync()
     {
@@ -187,24 +130,31 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 else
                 {
                     isEagerBatch = false;
-                    await _targetSink.EmitBatchAsync(_currentBatch).ConfigureAwait(false);
-                }
 
-                _currentBatch.Clear();
-                _batchScheduler.MarkSuccess();
+                    await _targetSink.EmitBatchAsync(_currentBatch).ConfigureAwait(false);
+
+                    _currentBatch.Clear();
+                    _batchScheduler.MarkSuccess();
+                }
             }
             catch (Exception ex)
             {
                 SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) failed emitting a batch: {ex}");
                 _batchScheduler.MarkFailure();
-                
+
                 if (_batchScheduler.ShouldDropBatch)
+                {
+                    SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) dropping the current batch");
                     _currentBatch.Clear();
+                }
 
                 if (_batchScheduler.ShouldDropQueue)
                 {
-                    // This is not ideal; the goal is to reduce memory pressure on the client if the server is offline
-                    // for extended periods. May be worth reviewing and possibly abandoning this.
+                    SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) dropping all queued events");
+                    
+                    // Not ideal, uses some CPU capacity unnecessarily and doesn't complete in bounded time. The goal is
+                    // to reduce memory pressure on the client if the server is offline for extended periods. May be
+                    // worth reviewing and possibly abandoning this.
                     while (_queue.Reader.TryRead(out _) && !_shutdownSignal.IsCancellationRequested) { }
                 }
 
@@ -262,5 +212,62 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             
         // `Task.IsCompletedSuccessfully` not available in .NET Standard 2.0/Framework.
         return completed != timeout && completed is { IsCompleted: true, IsCanceled: false, IsFaulted: false };
+    }
+    
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        SignalShutdown();
+        
+        try
+        {
+            _runLoop.Wait();
+        }
+        catch (Exception ex)
+        {
+            // E.g. the task was canceled before ever being run, or internally failed and threw
+            // an unexpected exception.
+            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) caught exception during disposal: {ex}");
+        }
+
+        (_targetSink as IDisposable)?.Dispose();
+    }
+
+#if FEATURE_ASYNCDISPOSABLE
+        /// <inheritdoc/>
+        public async ValueTask DisposeAsync()
+        {
+            SignalShutdown();
+
+            try
+            {
+                await _runLoop.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // E.g. the task was canceled before ever being run, or internally failed and threw
+                // an unexpected exception.
+                SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}): caught exception during async disposal: {ex}");
+            }
+
+            if (_targetSink is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+            else
+                (_targetSink as IDisposable)?.Dispose();
+        }
+#endif
+
+    void SignalShutdown()
+    {
+        lock (_stateLock)
+        {
+            if (!_shutdownSignal.IsCancellationRequested)
+            {
+                // Relies on synchronization via `_stateLock`: once the writer is completed, subsequent attempts to
+                // complete it will throw.
+                _queue.Writer.Complete();
+                _shutdownSignal.Cancel();
+            }
+        }
     }
 }
