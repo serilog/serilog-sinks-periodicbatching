@@ -161,6 +161,10 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         var isEagerBatch = _eagerlyEmitFirstEvent;
         do
         {
+            // Code from here through to the `try` block is expected to be infallible. It's structured this way because
+            // any failure modes within it haven't been accounted for in the rest of the sink design, and would need
+            // consideration in order for the sink to function robustly (i.e. to avoid hot/infinite looping).
+            
             var fillBatch = Task.Delay(_batchScheduler.NextInterval);
             do
             {
