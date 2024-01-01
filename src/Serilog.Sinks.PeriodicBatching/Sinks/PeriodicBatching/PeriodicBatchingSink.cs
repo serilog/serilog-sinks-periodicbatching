@@ -139,18 +139,18 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             }
             catch (Exception ex)
             {
-                SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) failed emitting a batch: {ex}");
+                WriteToSelfLog("failed emitting a batch", ex);
                 _batchScheduler.MarkFailure();
 
                 if (_batchScheduler.ShouldDropBatch)
                 {
-                    SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) dropping the current batch");
+                    WriteToSelfLog("dropping the current batch");
                     _currentBatch.Clear();
                 }
 
                 if (_batchScheduler.ShouldDropQueue)
                 {
-                    SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) dropping all queued events");
+                    WriteToSelfLog("dropping all queued events");
                     
                     // Not ideal, uses some CPU capacity unnecessarily and doesn't complete in bounded time. The goal is
                     // to reduce memory pressure on the client if the server is offline for extended periods. May be
@@ -194,7 +194,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         }
         catch (Exception ex)
         {
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) failed emitting a batch during shutdown; dropping remaining queued events: {ex}");
+            WriteToSelfLog("failed emitting a batch during shutdown; dropping remaining queued events", ex);
         }
     }
     
@@ -207,7 +207,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         // read task cancellation exceptions during shutdown, may be some room to improve.
         if (completed is { Exception: not null, IsCanceled: false })
         {
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) could not read from queue: {completed.Exception}");
+            WriteToSelfLog($"could not read from queue: {completed.Exception}");
         }
             
         // `Task.IsCompletedSuccessfully` not available in .NET Standard 2.0/Framework.
@@ -227,7 +227,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         {
             // E.g. the task was canceled before ever being run, or internally failed and threw
             // an unexpected exception.
-            SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}) caught exception during disposal: {ex}");
+            WriteToSelfLog("caught exception during disposal", ex);
         }
 
         (_targetSink as IDisposable)?.Dispose();
@@ -247,7 +247,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             {
                 // E.g. the task was canceled before ever being run, or internally failed and threw
                 // an unexpected exception.
-                SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}): caught exception during async disposal: {ex}");
+                WriteToSelfLog("caught exception during async disposal", ex);
             }
 
             if (_targetSink is IAsyncDisposable asyncDisposable)
@@ -269,5 +269,11 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 _shutdownSignal.Cancel();
             }
         }
+    }
+
+    void WriteToSelfLog(string message, Exception? exception = null)
+    {
+        var ex = exception != null ? $"{Environment.NewLine}{exception}" : "";
+        SelfLog.WriteLine($"PeriodicBatchingSink ({_targetSink}): {message}{ex}");
     }
 }
