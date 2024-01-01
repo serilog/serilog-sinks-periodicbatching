@@ -239,3 +239,4 @@ BenchmarkDotNet.Artifacts/
 .idea
 *.orig
 
+.DS_Store/

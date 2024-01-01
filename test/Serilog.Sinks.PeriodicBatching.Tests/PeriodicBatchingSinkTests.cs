@@ -1,6 +1,8 @@
-﻿using Serilog.Sinks.PeriodicBatching.Tests.Support;
+﻿using Serilog.Debugging;
+using Serilog.Sinks.PeriodicBatching.Tests.Support;
 using Xunit;
 using Serilog.Tests.Support;
+using Xunit.Abstractions;
 
 namespace Serilog.Sinks.PeriodicBatching.Tests;
 
@@ -8,6 +10,11 @@ public class PeriodicBatchingSinkTests
 {
     static readonly TimeSpan TinyWait = TimeSpan.FromMilliseconds(200);
     static readonly TimeSpan MicroWait = TimeSpan.FromMilliseconds(1);
+
+    public PeriodicBatchingSinkTests(ITestOutputHelper testOutputHelper)
+    {
+        SelfLog.Enable(testOutputHelper.WriteLine);
+    }
 
     [Fact]
     public void WhenAnEventIsEnqueuedItIsWrittenToABatchOnDispose()
@@ -17,8 +24,8 @@ public class PeriodicBatchingSinkTests
         var evt = Some.InformationEvent();
         pbs.Emit(evt);
         pbs.Dispose();
-        Assert.Equal(1, bs.Batches.Count);
-        Assert.Equal(1, bs.Batches[0].Count);
+        Assert.Single(bs.Batches);
+        Assert.Single(bs.Batches[0]);
         Assert.Same(evt, bs.Batches[0][0]);
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
@@ -26,7 +33,7 @@ public class PeriodicBatchingSinkTests
 
 #if FEATURE_ASYNCDISPOSABLE
         [Fact]
-        public async ValueTask WhenAnEventIsEnqueuedItIsWrittenToABatchOnDisposeAsync()
+        public async Task WhenAnEventIsEnqueuedItIsWrittenToABatchOnDisposeAsync()
         {
             var bs = new InMemoryBatchedSink(TimeSpan.Zero);
             var pbs = new PeriodicBatchingSink(
@@ -37,8 +44,8 @@ public class PeriodicBatchingSinkTests
             var evt = Some.InformationEvent();
             pbs.Emit(evt);
             await pbs.DisposeAsync();
-            Assert.Equal(1, bs.Batches.Count);
-            Assert.Equal(1, bs.Batches[0].Count);
+            Assert.Single(bs.Batches);
+            Assert.Single(bs.Batches[0]);
             Assert.Same(evt, bs.Batches[0][0]);
             Assert.True(bs.IsDisposed);
             Assert.True(bs.IsDisposedAsync);
@@ -61,7 +68,7 @@ public class PeriodicBatchingSinkTests
         Thread.Sleep(TinyWait + TinyWait);
         bs.Stop();
         pbs.Dispose();
-        Assert.Equal(1, bs.Batches.Count);
+        Assert.Single(bs.Batches);
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
     }
@@ -75,7 +82,7 @@ public class PeriodicBatchingSinkTests
         pbs.Emit(evt);
         Thread.Sleep(TinyWait);
         pbs.Dispose();
-        Assert.Equal(1, bs.Batches.Count);
+        Assert.Single(bs.Batches);
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
     }

@@ -2,25 +2,18 @@ using Serilog.Events;
 
 namespace Serilog.Sinks.PeriodicBatching.Tests.Support;
 
-sealed class InMemoryBatchedSink : IBatchedLogEventSink, IDisposable
+sealed class InMemoryBatchedSink(TimeSpan batchEmitDelay) : IBatchedLogEventSink, IDisposable
 #if FEATURE_ASYNCDISPOSABLE
-        , IAsyncDisposable
+    , IAsyncDisposable
 #endif
 {
-    readonly TimeSpan _batchEmitDelay;
     readonly object _stateLock = new();
     bool _stopped;
 
     // Postmortem only
     public bool WasCalledAfterDisposal { get; private set; }
-    public IList<IList<LogEvent>> Batches { get; }
+    public IList<IList<LogEvent>> Batches { get; } = new List<IList<LogEvent>>();
     public bool IsDisposed { get; private set; }
-
-    public InMemoryBatchedSink(TimeSpan batchEmitDelay)
-    {
-        _batchEmitDelay = batchEmitDelay;
-        Batches = new List<IList<LogEvent>>();
-    }
 
     public void Stop()
     {
@@ -40,7 +33,7 @@ sealed class InMemoryBatchedSink : IBatchedLogEventSink, IDisposable
             if (IsDisposed)
                 WasCalledAfterDisposal = true;
 
-            Thread.Sleep(_batchEmitDelay);
+            Thread.Sleep(batchEmitDelay);
             Batches.Add(events.ToList());
         }
 
