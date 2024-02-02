@@ -75,7 +75,11 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
         _waitForShutdownSignal = Task.Delay(Timeout.InfiniteTimeSpan, _shutdownSignal.Token)
             .ContinueWith(e => e.Exception, TaskContinuationOptions.OnlyOnFaulted);
 
-        _runLoop = Task.Run(LoopAsync);
+        // The conditional here is no longer required in .NET 8+ (dotnet/runtime#82912)
+        using (ExecutionContext.IsFlowSuppressed() ? (IDisposable?)null : ExecutionContext.SuppressFlow())
+        {
+            _runLoop = Task.Run(LoopAsync);
+        }
     }
 
     /// <summary>

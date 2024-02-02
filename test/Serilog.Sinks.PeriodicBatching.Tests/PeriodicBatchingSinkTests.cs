@@ -86,4 +86,27 @@ public class PeriodicBatchingSinkTests
         Assert.True(bs.IsDisposed);
         Assert.False(bs.WasCalledAfterDisposal);
     }
+
+    [Fact]
+    public void ExecutionContextDoesNotFlowToBatchedSink()
+    {
+        var local = new AsyncLocal<int>
+        {
+            Value = 5
+        };
+
+        var observed = 17;
+        var bs = new CallbackBatchedSink(_ =>
+        {
+            observed = local.Value;
+            return Task.CompletedTask;
+        });
+        
+        var pbs = new PeriodicBatchingSink(bs, new());
+        var evt = Some.InformationEvent();
+        pbs.Emit(evt);
+        pbs.Dispose();
+
+        Assert.Equal(default(int), observed);
+    }
 }
