@@ -33,7 +33,7 @@ foreach ($src in Get-ChildItem src/*) {
     } else {
         & dotnet pack -c Release --no-build -o ..\..\artifacts
     }
-    if($LASTEXITCODE -ne 0) { exit 1 }
+    if($LASTEXITCODE -ne 0) { throw "Failed" }
 
     Pop-Location
 }
@@ -44,18 +44,7 @@ foreach ($test in Get-ChildItem test/*.Tests) {
     Write-Output "build: Testing project in $test"
 
     & dotnet test -c Release
-    if($LASTEXITCODE -ne 0) { exit 3 }
-
-    Pop-Location
-}
-
-foreach ($test in Get-ChildItem test/*.PerformanceTests) {
-    Push-Location $test
-
-    Write-Output "build: Building performance test project in $test"
-
-    & dotnet build -c Release
-    if($LASTEXITCODE -ne 0) { exit 2 }
+    if($LASTEXITCODE -ne 0) { throw "Failed" }
 
     Pop-Location
 }
