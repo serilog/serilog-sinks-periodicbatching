@@ -109,4 +109,30 @@ public class PeriodicBatchingSinkTests
 
         Assert.Equal(default(int), observed);
     }
+    
+    [Fact]
+    public async Task EagerlyEmitFirstEventShouldWriteBatchImmediately()
+    {
+        var eventEmitted = false;
+        var bs = new CallbackBatchedSink(_ =>
+        {
+            eventEmitted = true;
+            return Task.CompletedTask;
+        });
+
+        var options = new PeriodicBatchingSinkOptions
+        {
+            Period = TimeSpan.FromSeconds(2),
+            EagerlyEmitFirstEvent = true,
+            BatchSizeLimit = 10,
+            QueueLimit = 1000
+        };
+        
+        await using var pbs = new PeriodicBatchingSink(bs, options);
+        var evt = Some.InformationEvent();
+        pbs.Emit(evt);
+
+        await Task.Delay(1900);
+        Assert.True(eventEmitted);
+    }
 }
