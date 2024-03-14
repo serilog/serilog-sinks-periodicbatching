@@ -121,7 +121,7 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
                 {
                     _currentBatch.Enqueue(next);
                 }
-            } while ((_currentBatch.Count < _batchSizeLimit || _currentBatch.Count > 0 && isEagerBatch) &&
+            } while ((_currentBatch.Count < _batchSizeLimit && !isEagerBatch || _currentBatch.Count == 0) &&
                      !_shutdownSignal.IsCancellationRequested &&
                      await TryWaitToReadAsync(_queue.Reader, fillBatch, _shutdownSignal.Token).ConfigureAwait(false));
 
