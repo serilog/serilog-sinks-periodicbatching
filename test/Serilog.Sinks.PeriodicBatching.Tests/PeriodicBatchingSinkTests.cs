@@ -113,7 +113,7 @@ public class PeriodicBatchingSinkTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task EagerlyEmitFirstEventShouldWriteBatchImmediately(bool eagerlyEmit)
+    public async Task EagerlyEmitFirstEventCausesQuickInitialBatch(bool eagerlyEmit)
     {
         ulong batchesEmitted = 0;
         var bs = new CallbackBatchedSink(_ =>
