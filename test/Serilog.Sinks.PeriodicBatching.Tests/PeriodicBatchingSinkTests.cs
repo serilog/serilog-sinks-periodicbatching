@@ -115,7 +115,7 @@ public class PeriodicBatchingSinkTests
     [InlineData(false)]
     public async Task EagerlyEmitFirstEventCausesQuickInitialBatch(bool eagerlyEmit)
     {
-        ulong batchesEmitted = 0;
+        long batchesEmitted = 0;
         var bs = new CallbackBatchedSink(_ =>
         {
             // ReSharper disable once AccessToModifiedClosure
@@ -137,7 +137,7 @@ public class PeriodicBatchingSinkTests
         pbs.Emit(evt);
 
         await Task.Delay(1900);
-        Assert.Equal(eagerlyEmit ? 1ul : 0, Interlocked.Read(ref batchesEmitted));
+        Assert.Equal(eagerlyEmit ? 1L : 0, Interlocked.Read(ref batchesEmitted));
         
 #if FEATURE_ASYNCDISPOSABLE
         await pbs.DisposeAsync();
@@ -145,6 +145,6 @@ public class PeriodicBatchingSinkTests
         pbs.Dispose();
 #endif
 
-        Assert.Equal(1ul, Interlocked.Read(ref batchesEmitted));
+        Assert.Equal(1L, Interlocked.Read(ref batchesEmitted));
     }
 }
