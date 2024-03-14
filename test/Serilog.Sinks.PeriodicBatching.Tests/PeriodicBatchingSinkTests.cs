@@ -128,7 +128,11 @@ public class PeriodicBatchingSinkTests
             QueueLimit = 1000
         };
         
-        await using var pbs = new PeriodicBatchingSink(bs, options);
+#if FEATURE_ASYNCDISPOSABLE
+        await
+#endif
+        using var pbs = new PeriodicBatchingSink(bs, options);
+        
         var evt = Some.InformationEvent();
         pbs.Emit(evt);
 
