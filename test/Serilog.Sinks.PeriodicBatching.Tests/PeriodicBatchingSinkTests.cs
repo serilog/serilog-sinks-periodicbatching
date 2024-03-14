@@ -107,36 +107,44 @@ public class PeriodicBatchingSinkTests
         pbs.Emit(evt);
         pbs.Dispose();
 
-        Assert.Equal(default(int), observed);
+        Assert.Equal(default, observed);
     }
     
-    [Fact]
-    public async Task EagerlyEmitFirstEventShouldWriteBatchImmediately()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EagerlyEmitFirstEventShouldWriteBatchImmediately(bool eagerlyEmit)
     {
-        var eventEmitted = false;
+        ulong batchesEmitted = 0;
         var bs = new CallbackBatchedSink(_ =>
         {
-            eventEmitted = true;
+            // ReSharper disable once AccessToModifiedClosure
+            Interlocked.Increment(ref batchesEmitted);
             return Task.CompletedTask;
         });
 
         var options = new PeriodicBatchingSinkOptions
         {
             Period = TimeSpan.FromSeconds(2),
-            EagerlyEmitFirstEvent = true,
+            EagerlyEmitFirstEvent = eagerlyEmit,
             BatchSizeLimit = 10,
             QueueLimit = 1000
         };
         
-#if FEATURE_ASYNCDISPOSABLE
-        await
-#endif
-        using var pbs = new PeriodicBatchingSink(bs, options);
+        var pbs = new PeriodicBatchingSink(bs, options);
         
         var evt = Some.InformationEvent();
         pbs.Emit(evt);
 
         await Task.Delay(1900);
-        Assert.True(eventEmitted);
+        Assert.Equal(eagerlyEmit ? 1ul : 0, Interlocked.Read(ref batchesEmitted));
+        
+#if FEATURE_ASYNCDISPOSABLE
+        await pbs.DisposeAsync();
+#else
+        pbs.Dispose();
+#endif
+
+        Assert.Equal(1ul, Interlocked.Read(ref batchesEmitted));
     }
 }
