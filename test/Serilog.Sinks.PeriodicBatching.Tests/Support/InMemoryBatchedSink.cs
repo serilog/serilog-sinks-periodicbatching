@@ -28,7 +28,7 @@ sealed class InMemoryBatchedSink(TimeSpan batchEmitDelay) : IBatchedLogEventSink
         lock (_stateLock)
         {
             if (_stopped)
-                return Task.FromResult(0);
+                return Task.CompletedTask;
 
             if (IsDisposed)
                 WasCalledAfterDisposal = true;
@@ -37,10 +37,10 @@ sealed class InMemoryBatchedSink(TimeSpan batchEmitDelay) : IBatchedLogEventSink
             Batches.Add(events.ToList());
         }
 
-        return Task.FromResult(0);
+        return Task.CompletedTask;
     }
 
-    public Task OnEmptyBatchAsync() => Task.FromResult(0);
+    public Task OnEmptyBatchAsync() => Task.CompletedTask;
 
     public void Dispose()
     {
