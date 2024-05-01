@@ -49,6 +49,7 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
     readonly FailureAwareBatchScheduler _batchScheduler;
     readonly Queue<LogEvent> _currentBatch = new();
     readonly Task _waitForShutdownSignal;
+    Task<bool>? _cachedWaitToRead;
     
     /// <summary>
     /// Constant used with legacy constructor to indicate that the internal queue shouldn't be limited.
@@ -260,7 +261,10 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
     // Wait until `reader` has items to read. Returns `false` if the `timeout` task completes, or if the reader is cancelled.
     async Task<bool> TryWaitToReadAsync(ChannelReader<LogEvent> reader, Task timeout, CancellationToken cancellationToken)
     {
-        var completed = await Task.WhenAny(timeout, reader.WaitToReadAsync(cancellationToken).AsTask()).ConfigureAwait(false);
+        var waitToRead = _cachedWaitToRead ?? reader.WaitToReadAsync(cancellationToken).AsTask();
+        _cachedWaitToRead = null;
+        
+        var completed = await Task.WhenAny(timeout, waitToRead).ConfigureAwait(false);
 
         // Avoid unobserved task exceptions in the cancellation and failure cases. Note that we may not end up observing
         // read task cancellation exceptions during shutdown, may be some room to improve.
@@ -268,9 +272,21 @@ public class PeriodicBatchingSink : ILogEventSink, IDisposable, IBatchedLogEvent
         {
             WriteToSelfLog($"could not read from queue: {completed.Exception}");
         }
+
+        if (completed == timeout)
+        {
+            // Dropping references to `waitToRead` will cause it and some supporting objects to leak; disposing it
+            // will break the channel and cause future attempts to read to fail. So, we cache and reuse it next time
+            // around the loop.
             
-        // `Task.IsCompletedSuccessfully` not available in .NET Standard 2.0/Framework.
-        return completed != timeout && completed is { IsCompleted: true, IsCanceled: false, IsFaulted: false };
+            _cachedWaitToRead = waitToRead;
+            return false;
+        }
+
+        if (waitToRead.Status is not TaskStatus.RanToCompletion)
+            return false;
+        
+        return await waitToRead;
     }
     
     /// <summary>
