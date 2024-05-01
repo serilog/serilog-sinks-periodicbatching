@@ -228,6 +228,9 @@ public sealed class PeriodicBatchingSink : ILogEventSink, IDisposable
             return false;
         }
 
+        if (waitToRead.Status is not TaskStatus.RanToCompletion)
+            return false;
+        
         return await waitToRead;
     }
     
