@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Description>Buffer batches of log events to be flushed asynchronously.</Description>
-    <VersionPrefix>4.0.1</VersionPrefix>
+    <VersionPrefix>4.1.0</VersionPrefix>
     <Authors>Serilog Contributors</Authors>
     <TargetFrameworks Condition=" '$(OS)' == 'Windows_NT' ">net462</TargetFrameworks>
     <TargetFrameworks>$(TargetFrameworks);netstandard2.0;net6.0</TargetFrameworks>
