@@ -22,9 +22,12 @@
     <DefineConstants>$(DefineConstants);FEATURE_ASYNCDISPOSABLE</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' OR '$(TargetFramework)' == 'net462'">
+    <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
+  </ItemGroup>
+    
   <ItemGroup>
     <PackageReference Include="Serilog" Version="3.1.1" />
-    <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
   </ItemGroup>
     
   <ItemGroup>
