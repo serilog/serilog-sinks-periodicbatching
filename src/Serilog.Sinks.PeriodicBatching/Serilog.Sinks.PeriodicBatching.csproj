@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Description>Buffer batches of log events to be flushed asynchronously.</Description>
-    <VersionPrefix>4.1.0</VersionPrefix>
+    <VersionPrefix>4.1.1</VersionPrefix>
     <Authors>Serilog Contributors</Authors>
     <TargetFrameworks Condition=" '$(OS)' == 'Windows_NT' ">net462</TargetFrameworks>
     <TargetFrameworks>$(TargetFrameworks);netstandard2.0;net6.0</TargetFrameworks>
@@ -22,9 +22,12 @@
     <DefineConstants>$(DefineConstants);FEATURE_ASYNCDISPOSABLE</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' OR '$(TargetFramework)' == 'net462'">
+    <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
+  </ItemGroup>
+    
   <ItemGroup>
     <PackageReference Include="Serilog" Version="3.1.1" />
-    <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
   </ItemGroup>
     
   <ItemGroup>
