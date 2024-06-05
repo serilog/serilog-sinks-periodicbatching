@@ -4,7 +4,7 @@ A wrapper for Serilog sinks that asynchronously emits events in batches, useful 
 
 > [!IMPORTANT]
 > Serilog 4.x and later versions support batching natively. New projects should use Serilog's `IBatchedLogEventSink` and
-> `WriteTo.Sink(IBatchedLogEventSink)`, not this package, which is maintained for compatibility reasons.
+> `WriteTo.Sink(IBatchedLogEventSink)`, not this package which is now only maintained for compatibility reasons.
 
 ### Getting started
 
