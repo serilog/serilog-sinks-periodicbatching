@@ -6,6 +6,40 @@ A wrapper for Serilog sinks that asynchronously emits events in batches, useful 
 > Serilog 4.x and later versions support batching natively. New projects should use Serilog's `IBatchedLogEventSink` and
 > `WriteTo.Sink(IBatchedLogEventSink)`, not this package which is now only maintained for compatibility reasons.
 
+### Updating for Serilog v4+
+
+First, update your _Serilog_ package reference to the latest published version.
+
+This example is from [Serilog.Sinks.Postgresql.Alternative](https://github.com/serilog-contrib/Serilog.Sinks.Postgresql.Alternative/commit/dd282cdd01c694ed586052a023e653d11dda62d1). Old code:
+
+```csharp
+var batchingOptions = new PeriodicBatchingSinkOptions()
+{
+    BatchSizeLimit = postgresOptions.BatchSizeLimit,
+    Period = postgresOptions.Period,
+    QueueLimit = postgresOptions.QueueLimit
+};
+
+var batchingSink = new PeriodicBatchingSink(new PostgreSqlSink(postgresOptions), batchingOptions);
+return sinkConfiguration.Sink(batchingSink, restrictedToMinimumLevel, levelSwitch);
+```
+
+New code:
+
+```csharp
+var batchingOptions = new BatchingOptions()
+{
+    BatchSizeLimit = postgresOptions.BatchSizeLimit,
+    BufferingTimeLimit = postgresOptions.Period,
+    QueueLimit = postgresOptions.QueueLimit
+};
+
+return sinkConfiguration.Sink(
+    new PostgreSqlSink(postgresOptions), batchingOptions, restrictedToMinimumLevel, levelSwitch);
+```
+
+When you're done, don't forget to remove the _Serilog.Sinks.PeriodicBatching_ package dependency.
+
 ### Getting started
 
 Sinks that, for performance reasons, need to emit events in batches, can be implemented using `PeriodicBatchingSink`
